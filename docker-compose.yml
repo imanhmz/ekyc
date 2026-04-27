@@ -1,0 +1,133 @@
+version: "3.9"
+
+services:
+
+  db:
+    image: postgres:15-alpine
+    container_name: kyc_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kyc_user
+      POSTGRES_PASSWORD: kyc_pass
+      POSTGRES_DB: kyc_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/src/database/migration/001_initial.sql:/docker-entrypoint-initdb.d/001_initial.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - kyc_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kyc_user -d kyc_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: kyc_rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: kyc_mq
+      RABBITMQ_DEFAULT_PASS: kyc_mq_pass
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - kyc_network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ipfs:
+    image: ipfs/kubo:latest
+    container_name: kyc_ipfs
+    restart: unless-stopped
+    ports:
+      - "4001:4001"
+      - "5001:5001"
+      - "8080:8080"
+    volumes:
+      - ipfs_data:/data/ipfs
+    networks:
+      - kyc_network
+
+#  api:
+#    build:
+#      context: ./backend
+#      dockerfile: Dockerfile
+#    container_name: kyc_backend
+#    restart: unless-stopped
+#    depends_on:
+#      db:
+#        condition: service_healthy
+#      mq:
+#        condition: service_healthy
+#    environment:
+#      DATABASE_HOST: db
+#      DATABASE_PORT: 5432
+#      DATABASE_USER: kyc_user
+#      DATABASE_PASSWORD: kyc_pass
+#      DATABASE_NAME: kyc_db
+#      RABBITMQ_URL: amqp://kyc_mq:kyc_mq_pass@mq:5672
+#      IPFS_API_URL: http://ipfs:5001
+#      CONTRACT_ADDRESS: ${CONTRACT_ADDRESS:-}
+#      BLOCKCHAIN_RPC_URL: ${BLOCKCHAIN_RPC_URL:-http://127.0.0.1:8545}
+#      PRIVATE_KEY: ${PRIVATE_KEY:-}
+#      SHARED_UPLOADS_PATH: /shared_uploads
+#      PORT: 3000
+#    ports:
+#      - "3000:3000"
+#    volumes:
+#      - shared_uploads:/shared_uploads
+#    networks:
+#      - kyc_network
+
+#  ai:
+#    build:
+#      context: ./ai-service
+#      dockerfile: Dockerfile
+#    container_name: kyc_ai
+#    restart: unless-stopped
+#    depends_on:
+#      mq:
+#        condition: service_healthy
+#    environment:
+#      RABBITMQ_URL: amqp://kyc_mq:kyc_mq_pass@mq:5672
+#      SHARED_UPLOADS_PATH: /shared_uploads
+#      MODEL_PATH: /models
+#    volumes:
+#      - shared_uploads:/shared_uploads
+#      - ai_models:/models
+#    networks:
+#      - kyc_network
+#    healthcheck:
+#      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+#      interval: 15s
+#      timeout: 5s
+#      retries: 5
+
+#  frontend:
+#    build:
+#      context: ./frontend
+#      dockerfile: Dockerfile
+#    container_name: kyc_frontend
+#    restart: unless-stopped
+#    depends_on:
+#      - api
+#    ports:
+#      - "5173:5173"
+#    networks:
+#      - kyc_network
+
+networks:
+  kyc_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  ipfs_data:
+  shared_uploads:
+  ai_models:

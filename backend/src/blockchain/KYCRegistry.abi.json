@@ -1,0 +1,11 @@
+[
+    "constructor() Ownable(msg.sender) {}",
+    "function registerIdentity(address user, string calldata ipfsCid, uint256 validUntil, uint8 trustScore) external",
+    "function flagIdentity(address user, string calldata reason) external",
+    "function revokeIdentity(address user) external",
+    "function isVerified(address user) external view returns (bool)",
+    "function registry(address) external view returns (string ipfsCid, uint256 validUntil, uint8 trustScore, bool active, uint256 verifiedAt)",
+    "event IdentityRegistered(address indexed user, string ipfsCid, uint256 validUntil)",
+    "event IdentityFlagged(address indexed user, string reason)",
+    "event IdentityRevoked(address indexed user)"
+]

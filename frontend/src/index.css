@@ -1,0 +1,259 @@
+/* ─── Design Tokens ─────────────────────────── */
+:root {
+  --bg:       #0f1117;
+  --bg-card:  #1a1d27;
+  --bg-input: #12151e;
+  --border:   #2e3347;
+  --accent:   #6366f1;
+  --accent-h: #818cf8;
+  --text:     #f1f5f9;
+  --text-muted: #94a3b8;
+  --success:  #22c55e;
+  --danger:   #ef4444;
+  --warn:     #f59e0b;
+  --info:     #3b82f6;
+  --radius:   12px;
+  --shadow:   0 4px 24px rgba(0,0,0,.4);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 16px; }
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  line-height: 1.6;
+}
+
+/* ─── Layout ─────────────────────────────────── */
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.header {
+  text-align: center;
+  padding: 3rem 1rem 2rem;
+  background: linear-gradient(135deg, #1e1b4b 0%, #0f1117 60%);
+  border-bottom: 1px solid var(--border);
+}
+
+.logo { font-size: 3rem; margin-bottom: .75rem; }
+
+.header h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  background: linear-gradient(90deg, #a5b4fc, #e879f9);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.header .subtitle {
+  color: var(--text-muted);
+  margin-top: .5rem;
+  font-size: .95rem;
+}
+
+.main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+  max-width: 900px;
+  margin: 2rem auto;
+  padding: 0 1rem;
+  width: 100%;
+}
+
+@media (min-width: 720px) {
+  .main { grid-template-columns: 1.4fr 1fr; }
+}
+
+.footer {
+  text-align: center;
+  padding: 1.5rem;
+  color: var(--text-muted);
+  font-size: .8rem;
+  border-top: 1px solid var(--border);
+}
+
+/* ─── Card ───────────────────────────────────── */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2rem;
+  box-shadow: var(--shadow);
+}
+
+.card h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 1.5rem;
+  color: var(--text);
+}
+
+/* ─── Form ───────────────────────────────────── */
+.upload-form { display: flex; flex-direction: column; gap: 1.25rem; }
+
+.field-group { display: flex; flex-direction: column; gap: .5rem; }
+
+.field-group label {
+  font-size: .85rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+.field-group input[type="text"] {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: .95rem;
+  padding: .6rem .9rem;
+  transition: border-color .2s;
+  font-family: inherit;
+  width: 100%;
+}
+.field-group input[type="text"]:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* ─── Drop Zone ──────────────────────────────── */
+.drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: 10px;
+  padding: 1.75rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+  color: var(--text-muted);
+  font-size: .9rem;
+}
+.drop-zone:hover, .drop-zone.drag-over {
+  border-color: var(--accent);
+  background: rgba(99,102,241,.07);
+  color: var(--text);
+}
+.drop-zone.has-file { border-color: var(--success); border-style: solid; }
+.drop-prompt { display: flex; flex-direction: column; gap: .4rem; align-items: center; }
+.upload-icon { font-size: 1.8rem; }
+.hint { font-size: .8rem; color: var(--text-muted); }
+
+.file-selected { display: flex; align-items: center; gap: .6rem; justify-content: center; flex-wrap: wrap; }
+.file-icon { font-size: 1.4rem; }
+.file-name { color: var(--success); font-weight: 500; word-break: break-all; }
+.file-size { font-size: .8rem; color: var(--text-muted); }
+
+/* ─── Buttons ────────────────────────────────── */
+.btn-primary, .btn-secondary {
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: .95rem;
+  font-weight: 600;
+  padding: .75rem 1.5rem;
+  transition: opacity .15s, transform .1s;
+  width: 100%;
+}
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent), #a855f7);
+  color: #fff;
+}
+.btn-secondary {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-weight: 500;
+}
+.btn-primary:hover:not(:disabled), .btn-secondary:hover:not(:disabled) {
+  opacity: .9;
+  transform: translateY(-1px);
+}
+.btn-primary:disabled, .btn-secondary:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ─── Error ──────────────────────────────────── */
+.error-message {
+  background: rgba(239,68,68,.12);
+  border: 1px solid rgba(239,68,68,.35);
+  border-radius: 8px;
+  color: #fca5a5;
+  font-size: .88rem;
+  padding: .65rem 1rem;
+}
+
+/* ─── Result Panel ───────────────────────────── */
+.result-panel { display: flex; flex-direction: column; gap: .85rem; }
+
+.divider {
+  height: 1px;
+  background: var(--border);
+  margin: .25rem 0;
+}
+
+.result-row {
+  display: flex;
+  align-items: baseline;
+  gap: .5rem;
+  font-size: .9rem;
+  flex-wrap: wrap;
+}
+.result-row .label {
+  color: var(--text-muted);
+  font-size: .8rem;
+  min-width: 90px;
+  flex-shrink: 0;
+}
+.result-row .value { color: var(--text); word-break: break-all; }
+.result-row .mono { font-family: monospace; font-size: .82rem; color: var(--text-muted); }
+.result-row .rejection { color: var(--danger); font-weight: 600; }
+
+/* ─── Status Badge ───────────────────────────── */
+.status-badge {
+  font-weight: 700;
+  font-size: .9rem;
+  letter-spacing: .02em;
+}
+
+.kyc-id {
+  font-family: monospace;
+  font-size: .82rem;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+/* ─── Info Panel ─────────────────────────────── */
+.info-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.75rem;
+  box-shadow: var(--shadow);
+  align-self: start;
+}
+
+.info-panel h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  color: var(--text);
+}
+
+.steps {
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: .75rem;
+  font-size: .88rem;
+  color: var(--text-muted);
+}
+.steps li strong { color: var(--text); }
