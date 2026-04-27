@@ -62,7 +62,7 @@ export class KycService {
         await this.queueService.publishKycJob({
             kyc_id: record.id,
             user_id: userId,
-            file_path: filePath,
+            file_path: path.resolve(filePath),
             file_type: file.mimetype,
             submitted_at: new Date().toISOString(),
         });

@@ -48,7 +48,7 @@ def _check_compression_artifacts(image_path: str) -> bool:
         # Simple laplacian variance check — very manipulated images often have unusual sharpness patterns
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         variance = cv2.Laplacian(gray, cv2.CV_64F).var()
-        return variance > 2000  # Threshold tuned for ID documents
+        return bool(variance > 2000)  # Threshold tuned for ID documents
     except Exception:
         return False
 
