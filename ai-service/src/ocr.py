@@ -26,7 +26,7 @@ _reader = None
 def _get_reader():
     global _reader
     if _reader is None and EASYOCR_AVAILABLE:
-        _reader = easyocr.Reader(['en', 'de', 'fr'], gpu=False)
+        _reader = easyocr.Reader(['en', 'de', 'fr'], gpu=True)
     return _reader
 
 
