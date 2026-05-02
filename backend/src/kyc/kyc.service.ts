@@ -11,6 +11,8 @@ import { User } from '../database/user.entity';
 import { QueueService, AiResultPayload } from '../queue/queue.service';
 import { BlockchainService } from '../blockchain/blockchain.service';
 import { IpfsService } from '../ipfs/ipfs.service';
+import { CryptoService } from '../ipfs/crypto.service';
+import { verifyMessage } from 'ethers';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -28,6 +30,7 @@ export class KycService {
         private readonly queueService: QueueService,
         private readonly blockchainService: BlockchainService,
         private readonly ipfsService: IpfsService,
+        private readonly cryptoService: CryptoService,
     ) {
         this.uploadsPath = process.env.SHARED_UPLOADS_PATH || './shared_uploads';
         fs.mkdirSync(this.uploadsPath, { recursive: true });
@@ -36,10 +39,15 @@ export class KycService {
         this.queueService.setResultHandler(this.processResult.bind(this));
     }
 
-    async submit(userId: string, file: Express.Multer.File): Promise<{ kyc_id: string; status: string; message: string }> {
+    async submit(userId: string, file: Express.Multer.File, walletAddress?: string): Promise<{ kyc_id: string; status: string; message: string }> {
         const allowedMimes = ['image/jpeg', 'image/png', 'application/pdf'];
         if (!allowedMimes.includes(file.mimetype)) {
             throw new BadRequestException({ error: 'INVALID_FILE_TYPE', message: 'Only JPEG, PNG, and PDF files are accepted.' });
+        }
+
+        // Validate wallet address format if provided
+        if (walletAddress && !/^0x[a-fA-F0-9]{40}$/.test(walletAddress)) {
+            throw new BadRequestException({ error: 'INVALID_WALLET_ADDRESS', message: 'Invalid Ethereum address format.' });
         }
 
         // Auto-create a mock user if doesn't exist to satisfy foreign key constraints
@@ -51,7 +59,7 @@ export class KycService {
 
         // Save to shared volume
         const ext = file.originalname.split('.').pop();
-        const record = this.kycRepo.create({ userId, status: 'PENDING' });
+        const record = this.kycRepo.create({ userId, status: 'PENDING', walletAddress });
         await this.kycRepo.save(record);
 
         const filename = `${record.id}.${ext}`;
@@ -128,26 +136,50 @@ export class KycService {
             else if (trustScore < 80) expiryDays = 90;
             const expiresAt = new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000);
 
-            // Upload to IPFS
+            // Upload encrypted document to IPFS
             let ipfsCid: string | null = null;
+            let encryptionKey: string | null = null;
             try {
                 if (record.documentPath && fs.existsSync(record.documentPath)) {
-                    ipfsCid = await this.ipfsService.addFile(record.documentPath);
+                    const uploadResult = await this.ipfsService.addFile(record.documentPath);
+                    ipfsCid = uploadResult.cid;
+                    encryptionKey = uploadResult.encryptionKey;
                 }
-            } catch {
-                console.warn('IPFS upload failed, continuing without CID');
+            } catch (e) {
+                console.warn('IPFS upload failed, continuing without CID:', e.message);
             }
 
-             console.log({ipfsCid})
-            // Write to blockchain
+            // Check if wallet address exists - if not, set APPROVED_PENDING_WALLET status
+            if (!record.walletAddress) {
+                // KYC is approved but needs wallet linking
+                await this.kycRepo.update(record.id, {
+                    status: 'APPROVED_PENDING_WALLET',
+                    trustScore,
+                    ipfsCid,
+                    encryptionKey,
+                    tokenExpiresAt: expiresAt,
+                    ocrData: result.ocr_data,
+                    deepfakeResult: result.deepfake_result,
+                });
+                await this.logAudit(record.id, prevStatus, 'APPROVED_PENDING_WALLET', 'ai-service', {
+                    trust_score: trustScore,
+                    ipfs_cid: ipfsCid,
+                    message: 'Awaiting wallet linkage'
+                });
+
+                // Clean up original file after IPFS upload
+                if (record.documentPath) {
+                    try { fs.unlinkSync(record.documentPath); } catch { }
+                }
+                return;
+            }
+
+            // Wallet exists - proceed with blockchain registration
             let txHash: string | null = null;
             try {
-                // Use stored wallet address; fall back to a deterministic dev address derived from userId
-                const walletAddr = record.walletAddress
-                    || ('0x' + Buffer.from(record.userId.replace(/-/g, ''), 'hex').slice(0, 20).toString('hex').padEnd(40, '0'));
                 const cidToRegister = ipfsCid || '';
                 txHash = await this.blockchainService.registerIdentity(
-                    walletAddr,
+                    record.walletAddress,
                     cidToRegister,
                     Math.floor(expiresAt.getTime() / 1000),
                     trustScore,
@@ -161,6 +193,7 @@ export class KycService {
                 status: 'APPROVED',
                 trustScore,
                 ipfsCid,
+                encryptionKey,
                 blockchainTxHash: txHash,
                 tokenExpiresAt: expiresAt,
                 ocrData: result.ocr_data,
@@ -185,6 +218,129 @@ export class KycService {
             if (record.documentPath) {
                 try { fs.unlinkSync(record.documentPath); } catch { }
             }
+        }
+    }
+
+    /**
+     * Link a wallet address to a KYC record via cryptographic signature verification
+     */
+    async linkWallet(kycId: string, walletAddress: string, signature: string, message: string): Promise<any> {
+        // Find KYC record
+        const record = await this.kycRepo.findOne({ where: { id: kycId } });
+        if (!record) {
+            throw new NotFoundException(`KYC record ${kycId} not found`);
+        }
+
+        // Verify the signature matches the wallet address
+        try {
+            const recoveredAddress = verifyMessage(message, signature);
+            if (recoveredAddress.toLowerCase() !== walletAddress.toLowerCase()) {
+                throw new BadRequestException({
+                    error: 'SIGNATURE_MISMATCH',
+                    message: 'Signature does not match provided wallet address',
+                });
+            }
+        } catch (e) {
+            throw new BadRequestException({
+                error: 'INVALID_SIGNATURE',
+                message: 'Failed to verify signature: ' + e.message,
+            });
+        }
+
+        const prevStatus = record.status;
+
+        // Update wallet address
+        await this.kycRepo.update(record.id, { walletAddress });
+        await this.logAudit(record.id, prevStatus, prevStatus, 'user', {
+            action: 'wallet_linked',
+            wallet_address: walletAddress,
+        });
+
+        // If status is APPROVED_PENDING_WALLET, trigger blockchain registration
+        if (record.status === 'APPROVED_PENDING_WALLET') {
+            let txHash: string | null = null;
+
+            try {
+                const cidToRegister = record.ipfsCid || '';
+                txHash = await this.blockchainService.registerIdentity(
+                    walletAddress,
+                    cidToRegister,
+                    Math.floor((record.tokenExpiresAt?.getTime() || Date.now()) / 1000),
+                    record.trustScore || 0,
+                );
+                console.log('Blockchain registration after wallet link:', { txHash });
+            } catch (e) {
+                console.warn('Blockchain registration failed after wallet link:', e.message);
+            }
+
+            // Update status to APPROVED
+            await this.kycRepo.update(record.id, {
+                status: 'APPROVED',
+                blockchainTxHash: txHash,
+            });
+            await this.logAudit(record.id, 'APPROVED_PENDING_WALLET', 'APPROVED', 'system', {
+                blockchain_tx_hash: txHash,
+                message: 'Wallet linked and blockchain registered',
+            });
+
+            return {
+                success: true,
+                message: 'Wallet linked and blockchain registration completed',
+                kyc_id: kycId,
+                wallet_address: walletAddress,
+                blockchain_tx_hash: txHash,
+                status: 'APPROVED',
+            };
+        }
+
+        return {
+            success: true,
+            message: 'Wallet linked successfully',
+            kyc_id: kycId,
+            wallet_address: walletAddress,
+            status: record.status,
+        };
+    }
+
+    /**
+     * Retrieve and decrypt a document for the institution
+     */
+    async getDocument(kycId: string): Promise<{ buffer: Buffer; mimetype: string }> {
+        const record = await this.kycRepo.findOne({ where: { id: kycId } });
+
+        if (!record) {
+            throw new NotFoundException(`KYC record ${kycId} not found`);
+        }
+
+        if (!record.ipfsCid) {
+            throw new NotFoundException('No document uploaded to IPFS for this KYC record');
+        }
+
+        if (!record.encryptionKey) {
+            throw new BadRequestException('No encryption key available for this document');
+        }
+
+        try {
+            // Download encrypted document from IPFS
+            const encryptedBuffer = await this.ipfsService.getFile(record.ipfsCid);
+
+            // Decrypt using stored key
+            const decryptedBuffer = this.cryptoService.decryptBuffer(encryptedBuffer, record.encryptionKey);
+
+            // Determine MIME type from document type or use generic
+            const mimetypes: Record<string, string> = {
+                'PASSPORT': 'application/pdf',
+                'NATIONAL_ID': 'image/jpeg',
+                'DRIVERS_LICENCE': 'image/jpeg',
+            };
+            const mimetype = mimetypes[record.documentType || ''] || 'application/octet-stream';
+
+            return {
+                buffer: decryptedBuffer,
+                mimetype,
+            };
+        } catch (e) {
+            throw new BadRequestException(`Failed to retrieve document: ${e.message}`);
         }
     }
 

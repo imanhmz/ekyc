@@ -11,7 +11,7 @@ import {
 import { KycAuditLog } from './kyc-audit-log.entity';
 import { User } from './user.entity';
 
-export type KycStatus = 'PENDING' | 'PROCESSING' | 'APPROVED' | 'REJECTED' | 'FLAGGED';
+export type KycStatus = 'PENDING' | 'PROCESSING' | 'APPROVED_PENDING_WALLET' | 'APPROVED' | 'REJECTED' | 'FLAGGED';
 
 @Entity('kyc_records')
 export class KycRecord {
@@ -54,6 +54,9 @@ export class KycRecord {
 
     @Column({ name: 'deepfake_result', type: 'jsonb', nullable: true })
     deepfakeResult: Record<string, any>;
+
+    @Column({ name: 'encryption_key', nullable: true })
+    encryptionKey: string;
 
     @Column({ name: 'token_expires_at', type: 'timestamptz', nullable: true })
     tokenExpiresAt: Date;

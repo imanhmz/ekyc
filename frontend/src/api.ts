@@ -8,7 +8,7 @@ export interface SubmitResponse {
 
 export interface StatusResponse {
     kyc_id: string;
-    status: 'PENDING' | 'PROCESSING' | 'APPROVED' | 'REJECTED' | 'FLAGGED';
+    status: 'PENDING' | 'PROCESSING' | 'APPROVED_PENDING_WALLET' | 'APPROVED' | 'REJECTED' | 'FLAGGED';
     trust_score?: number;
     ipfs_cid?: string;
     blockchain_tx_hash?: string;
@@ -17,14 +17,46 @@ export interface StatusResponse {
     rejection_reason?: string;
 }
 
-export async function submitKyc(userId: string, file: File): Promise<SubmitResponse> {
+export interface LinkWalletResponse {
+    success: boolean;
+    message: string;
+    kyc_id: string;
+    wallet_address: string;
+    blockchain_tx_hash?: string;
+    status: string;
+}
+
+export async function submitKyc(userId: string, file: File, walletAddress?: string): Promise<SubmitResponse> {
     const formData = new FormData();
     formData.append('user_id', userId);
     formData.append('document', file);
+    if (walletAddress) {
+        formData.append('wallet_address', walletAddress);
+    }
 
     const res = await fetch(`${API_BASE}/kyc/submit`, {
         method: 'POST',
         body: formData,
+    });
+
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: 'Unknown error' }));
+        throw new Error(err.message || `HTTP ${res.status}`);
+    }
+
+    return res.json();
+}
+
+export async function linkWallet(kycId: string, walletAddress: string, signature: string, message: string): Promise<LinkWalletResponse> {
+    const res = await fetch(`${API_BASE}/kyc/link-wallet`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            kyc_id: kycId,
+            wallet_address: walletAddress,
+            signature,
+            message,
+        }),
     });
 
     if (!res.ok) {

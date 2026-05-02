@@ -1,9 +1,11 @@
 import React, { useState, useCallback, DragEvent } from 'react';
 import { submitKyc, getStatus, type StatusResponse } from '../api';
 import { StatusBadge } from './StatusBadge';
+import { WalletLinkForm } from './WalletLinkForm';
 
 export function UploadForm() {
     const [userId, setUserId] = useState<string>(() => crypto.randomUUID());
+    const [walletAddress, setWalletAddress] = useState<string>('');
     const [file, setFile] = useState<File | null>(null);
     const [dragOver, setDragOver] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -43,7 +45,8 @@ export function UploadForm() {
         setStatus(null);
 
         try {
-            const res = await submitKyc(userId.trim(), file);
+            const walletAddr = walletAddress.trim() || undefined;
+            const res = await submitKyc(userId.trim(), file, walletAddr);
             setKycId(res.kyc_id);
             setStatus({ kyc_id: res.kyc_id, status: 'PENDING' });
         } catch (e: any) {
@@ -79,6 +82,19 @@ export function UploadForm() {
                     onChange={(e) => setUserId(e.target.value)}
                     disabled={loading}
                 />
+            </div>
+
+            <div className="field-group">
+                <label htmlFor="wallet-address">Ethereum Wallet Address (optional)</label>
+                <input
+                    id="wallet-address"
+                    type="text"
+                    placeholder="0x... (or link wallet later)"
+                    value={walletAddress}
+                    onChange={(e) => setWalletAddress(e.target.value)}
+                    disabled={loading}
+                />
+                <span className="hint-text">You can also link your wallet after submission</span>
             </div>
 
             <div className="field-group">
@@ -169,6 +185,10 @@ export function UploadForm() {
                     >
                         {polling ? 'Checking…' : '↻ Check Status'}
                     </button>
+
+                    {status?.status === 'APPROVED_PENDING_WALLET' && (
+                        <WalletLinkForm kycId={kycId} onSuccess={handleCheckStatus} />
+                    )}
                 </div>
             )}
         </form>

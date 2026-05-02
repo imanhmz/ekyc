@@ -8,11 +8,14 @@ import {
     UseInterceptors,
     HttpCode,
     HttpStatus,
+    Res,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
+import { Response } from 'express';
 import { KycService } from './kyc.service';
 import { SubmitKycDto } from './dto/submit-kyc.dto';
+import { LinkWalletDto } from './dto/link-wallet.dto';
 
 @Controller('kyc')
 export class KycController {
@@ -30,7 +33,7 @@ export class KycController {
         @Body() dto: SubmitKycDto,
         @UploadedFile() file: Express.Multer.File,
     ) {
-        return this.kycService.submit(dto.user_id, file);
+        return this.kycService.submit(dto.user_id, file, dto.wallet_address);
     }
 
     @Get('status/:kyc_id')
@@ -46,5 +49,24 @@ export class KycController {
     @Post('flag/:address')
     async flagAddress(@Param('address') address: string) {
         return this.kycService.flagAddress(address);
+    }
+
+    @Post('link-wallet')
+    @HttpCode(HttpStatus.OK)
+    async linkWallet(@Body() dto: LinkWalletDto) {
+        return this.kycService.linkWallet(
+            dto.kyc_id,
+            dto.wallet_address,
+            dto.signature,
+            dto.message,
+        );
+    }
+
+    @Get('document/:kyc_id')
+    async getDocument(@Param('kyc_id') kycId: string, @Res() res: Response) {
+        const { buffer, mimetype } = await this.kycService.getDocument(kycId);
+        res.setHeader('Content-Type', mimetype);
+        res.setHeader('Content-Disposition', `attachment; filename="${kycId}.pdf"`);
+        res.send(buffer);
     }
 }

@@ -16,8 +16,8 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS kyc_records (
     id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id             UUID        NOT NULL REFERENCES users(id),
-    status              VARCHAR(20)  NOT NULL DEFAULT 'PENDING',
-                        -- PENDING | PROCESSING | APPROVED | REJECTED | FLAGGED
+    status              VARCHAR(30)  NOT NULL DEFAULT 'PENDING',
+                        -- PENDING | PROCESSING | APPROVED_PENDING_WALLET | APPROVED | REJECTED | FLAGGED
     document_path       TEXT,
     document_type       VARCHAR(50),
                         -- PASSPORT | NATIONAL_ID | DRIVERS_LICENCE
