@@ -7,12 +7,35 @@ const RESULTS_QUEUE = 'kyc_results';
 const PROCESSING_KEY = 'kyc.process';
 const RESULTS_KEY = 'kyc.result';
 
+export interface DeepfakeResult {
+    verdict: 'REAL' | 'FAKE' | 'NO_FACE';
+    confidence: number;
+    artifacts_detected: boolean;
+    [key: string]: any;
+}
+
+export type AiResultPayload = {
+    kyc_id: string;
+    trust_score: number;
+    deepfake_result: DeepfakeResult;
+    processed_at: string;
+} & (
+        | {
+            result: 'APPROVED';
+            ocr_data: Record<string, any>; // Adjust this based on exact OCR keys
+        }
+        | {
+            result: 'REJECTED';
+            rejection_reason: 'DEEPFAKE_DETECTED' | 'OCR_FAILURE' | 'LOW_TRUST_SCORE';
+        }
+    );
+
 @Injectable()
 export class QueueService implements OnModuleInit {
     private readonly logger = new Logger(QueueService.name);
     private connection: any;
     private channel: any;
-    private resultHandler: ((msg: any) => Promise<void>) | null = null;
+    private resultHandler: ((msg: AiResultPayload) => Promise<void>) | null = null;
 
     async onModuleInit() {
         await this.connect();
@@ -56,7 +79,7 @@ export class QueueService implements OnModuleInit {
         this.logger.error('Could not connect to RabbitMQ after all retries');
     }
 
-    setResultHandler(handler: (msg: any) => Promise<void>) {
+    setResultHandler(handler: (msg: AiResultPayload) => Promise<void>) {
         this.resultHandler = handler;
     }
 

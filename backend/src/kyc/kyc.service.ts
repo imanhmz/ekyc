@@ -8,7 +8,7 @@ import { Repository } from 'typeorm';
 import { KycRecord, KycStatus } from '../database/kyc-record.entity';
 import { KycAuditLog } from '../database/kyc-audit-log.entity';
 import { User } from '../database/user.entity';
-import { QueueService } from '../queue/queue.service';
+import { QueueService, AiResultPayload } from '../queue/queue.service';
 import { BlockchainService } from '../blockchain/blockchain.service';
 import { IpfsService } from '../ipfs/ipfs.service';
 import * as fs from 'fs';
@@ -31,6 +31,9 @@ export class KycService {
     ) {
         this.uploadsPath = process.env.SHARED_UPLOADS_PATH || './shared_uploads';
         fs.mkdirSync(this.uploadsPath, { recursive: true });
+
+        // This wires up the handler for the AI result
+        this.queueService.setResultHandler(this.processResult.bind(this));
     }
 
     async submit(userId: string, file: Express.Multer.File): Promise<{ kyc_id: string; status: string; message: string }> {
@@ -111,13 +114,13 @@ export class KycService {
     }
 
     /** Called by QueueService when AI result arrives */
-    async processResult(result: any): Promise<void> {
+    async processResult(result: AiResultPayload): Promise<void> {
         const record = await this.kycRepo.findOne({ where: { id: result.kyc_id } });
         if (!record) return;
 
         const prevStatus = record.status;
 
-        if (result.result === 'APPROVED') {
+         if (result.result === 'APPROVED') {
             // Compute token expiry
             const trustScore: number = result.trust_score;
             let expiryDays = 180;
@@ -135,19 +138,23 @@ export class KycService {
                 console.warn('IPFS upload failed, continuing without CID');
             }
 
+             console.log({ipfsCid})
             // Write to blockchain
             let txHash: string | null = null;
             try {
-                if (ipfsCid) {
-                    txHash = await this.blockchainService.registerIdentity(
-                        record.userId, // using userId as address key; real deployment uses wallet address
-                        ipfsCid,
-                        Math.floor(expiresAt.getTime() / 1000),
-                        trustScore,
-                    );
-                }
-            } catch {
-                console.warn('Blockchain registration failed, continuing without tx_hash');
+                // Use stored wallet address; fall back to a deterministic dev address derived from userId
+                const walletAddr = record.walletAddress
+                    || ('0x' + Buffer.from(record.userId.replace(/-/g, ''), 'hex').slice(0, 20).toString('hex').padEnd(40, '0'));
+                const cidToRegister = ipfsCid || '';
+                txHash = await this.blockchainService.registerIdentity(
+                    walletAddr,
+                    cidToRegister,
+                    Math.floor(expiresAt.getTime() / 1000),
+                    trustScore,
+                );
+                console.log({ txHash });
+            } catch (e) {
+                console.warn('Blockchain registration failed, continuing without tx_hash:', e.message);
             }
 
             await this.kycRepo.update(record.id, {

@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import * as path from 'path';
 import { KycModule } from './kyc/kyc.module';
 import { QueueModule } from './queue/queue.module';
 import { BlockchainModule } from './blockchain/blockchain.module';
@@ -9,8 +11,12 @@ import { KycAuditLog } from './database/kyc-audit-log.entity';
 import { User } from './database/user.entity';
 import { AppInitService } from './app-init.service';
 
-@Module({
+ @Module({
     imports: [
+        ConfigModule.forRoot({
+            isGlobal: true,
+            envFilePath: path.resolve(__dirname, '../..', '.env'),
+        }),
         TypeOrmModule.forRoot({
             type: 'postgres',
             host: process.env.DATABASE_HOST || 'localhost',

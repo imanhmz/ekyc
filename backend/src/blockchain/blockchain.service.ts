@@ -15,7 +15,9 @@ export class BlockchainService implements OnModuleInit {
             const rpcUrl = process.env.BLOCKCHAIN_RPC_URL || 'http://127.0.0.1:8545';
             const privateKey = process.env.PRIVATE_KEY;
             const contractAddress = process.env.CONTRACT_ADDRESS;
-
+            console.log({
+                rpcUrl,privateKey,contractAddress
+            })
             if (!privateKey || !contractAddress) {
                 this.logger.warn('Blockchain not configured (PRIVATE_KEY or CONTRACT_ADDRESS missing). Blockchain features disabled.');
                 return;
