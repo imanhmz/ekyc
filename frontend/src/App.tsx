@@ -6,8 +6,20 @@ function App() {
     return (
         <div className="app">
             <header className="header">
-                <div className="logo">🔐</div>
-                <h1>e-KYC Live-Check Ledger</h1>
+                <div className="logo">✍️</div>
+                <h1>Signer Bank - KYC Verification</h1>
+                <div style={{
+                    display: 'inline-block',
+                    background: '#48bb78',
+                    color: 'white',
+                    padding: '8px 20px',
+                    borderRadius: '20px',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                    marginTop: '10px'
+                }}>
+                    VERIFICATION PROVIDER
+                </div>
                 <p className="subtitle">Blockchain-anchored identity verification with AI fraud detection</p>
             </header>
 
@@ -30,7 +42,12 @@ function App() {
             </main>
 
             <footer className="footer">
-                <p>e-KYC Live-Check Ledger · Thesis Implementation · Polygon / IPFS / NestJS</p>
+                <p>Signer Bank (Port 3000) · Verification Provider · Polygon / IPFS / NestJS</p>
+                <p style={{ marginTop: '10px', fontSize: '14px', opacity: 0.8 }}>
+                    👁️ <a href="http://localhost:3001" target="_blank" style={{ color: 'inherit', textDecoration: 'underline' }}>
+                        Open Viewer Bank (Port 3001)
+                    </a> to see multi-institution verification
+                </p>
             </footer>
         </div>
     );

@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Viewer Bank - KYC Verification Checker</title>
+    <script src="https://cdn.ethers.io/lib/ethers-5.7.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .bank-header {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+
+        .bank-logo {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+
+        h1 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .bank-type {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }
+
+        .bank-description {
+            color: #666;
+            line-height: 1.6;
+            margin-top: 15px;
+            padding: 15px;
+            background: #f8f9ff;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .card {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #48bb78;
+            color: white;
+            margin-top: 10px;
+        }
+
+        .btn-secondary:hover {
+            background: #38a169;
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .result-card {
+            margin-top: 20px;
+            padding: 20px;
+            border-radius: 8px;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .result-verified {
+            background: #f0fff4;
+            border: 2px solid #48bb78;
+        }
+
+        .result-not-verified {
+            background: #fff5f5;
+            border: 2px solid #f56565;
+        }
+
+        .result-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        .result-verified .result-header {
+            color: #48bb78;
+        }
+
+        .result-not-verified .result-header {
+            color: #f56565;
+        }
+
+        .result-icon {
+            font-size: 40px;
+            margin-right: 15px;
+        }
+
+        .result-details {
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 15px;
+        }
+
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .detail-row:last-child {
+            border-bottom: none;
+        }
+
+        .detail-label {
+            font-weight: 600;
+            color: #666;
+        }
+
+        .detail-value {
+            color: #333;
+            font-family: monospace;
+        }
+
+        .note {
+            margin-top: 15px;
+            padding: 12px;
+            background: white;
+            border-radius: 6px;
+            font-size: 14px;
+            line-height: 1.6;
+            color: #666;
+        }
+
+        .error-message {
+            background: #fff5f5;
+            border: 1px solid #f56565;
+            color: #c53030;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+
+        .wallet-connect-btn {
+            background: #f6851b;
+            color: white;
+            margin-bottom: 15px;
+        }
+
+        .wallet-connect-btn:hover {
+            background: #e2761b;
+        }
+
+        .info-box {
+            background: #ebf4ff;
+            border: 1px solid #667eea;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .comparison-table {
+            margin-top: 20px;
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .comparison-table th {
+            background: #667eea;
+            color: white;
+            padding: 12px;
+            text-align: left;
+        }
+
+        .comparison-table td {
+            padding: 12px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .comparison-table tr:last-child td {
+            border-bottom: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Bank Header -->
+        <div class="bank-header">
+            <div class="bank-logo">👁️</div>
+            <h1>Viewer Bank</h1>
+            <span class="bank-type">VERIFICATION CHECKER</span>
+            <div class="bank-description">
+                <strong>Viewer Bank</strong> demonstrates multi-institution trust.<br>
+                We don't perform KYC verification - we only <strong>read</strong> from the shared blockchain.<br>
+                If you're verified at Signer Bank, we trust that verification instantly.
+            </div>
+        </div>
+
+        <!-- Verification Checker -->
+        <div class="card">
+            <h2 style="margin-bottom: 20px;">Check Verification Status</h2>
+
+            <div class="info-box">
+                💡 <strong>How this works:</strong> Enter a wallet address to check if they're verified by ANY institution in the network.
+                Viewer Bank queries the shared blockchain - no database access needed.
+            </div>
+
+            <button class="btn wallet-connect-btn" onclick="connectWallet()">
+                🦊 Connect MetaMask (Auto-fill Address)
+            </button>
+
+            <div class="input-group">
+                <label>Wallet Address</label>
+                <input
+                    type="text"
+                    id="walletInput"
+                    placeholder="0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"
+                    value="">
+            </div>
+
+            <button class="btn btn-primary" onclick="checkVerification()">
+                🔍 Check Verification Status
+            </button>
+
+            <button class="btn btn-secondary" id="downloadBtn" style="display: none;" onclick="downloadDocument()">
+                📄 Request Document from Signer Bank
+            </button>
+
+            <div id="result"></div>
+        </div>
+
+        <!-- Comparison Table -->
+        <div class="card">
+            <h2 style="margin-bottom: 20px;">🏦 Institution Comparison</h2>
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>Feature</th>
+                        <th>Signer Bank (Port 3000)</th>
+                        <th>Viewer Bank (Port 3001)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Performs KYC</strong></td>
+                        <td>✅ Yes</td>
+                        <td>❌ No</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Has Database</strong></td>
+                        <td>✅ PostgreSQL</td>
+                        <td>❌ None</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Has IPFS Node</strong></td>
+                        <td>✅ Yes</td>
+                        <td>❌ None</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Has AI Service</strong></td>
+                        <td>✅ OCR + Deepfake</td>
+                        <td>❌ None</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Queries Blockchain</strong></td>
+                        <td>✅ Yes</td>
+                        <td>✅ Yes</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Can Write to Blockchain</strong></td>
+                        <td>✅ registerIdentity()</td>
+                        <td>❌ Read-only</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Verification Time</strong></td>
+                        <td>~30 seconds</td>
+                        <td>~1 second</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Cost per Verification</strong></td>
+                        <td>$500 (AI processing)</td>
+                        <td>$0 (just blockchain query)</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:3001/api';
+
+        async function connectWallet() {
+            if (typeof window.ethereum === 'undefined') {
+                alert('MetaMask not detected. Please install MetaMask to use this feature.');
+                return;
+            }
+
+            try {
+                const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                const address = accounts[0];
+                document.getElementById('walletInput').value = address;
+                console.log('Connected wallet:', address);
+            } catch (error) {
+                console.error('Wallet connection error:', error);
+                alert('Failed to connect wallet: ' + error.message);
+            }
+        }
+
+        async function checkVerification() {
+            const walletAddress = document.getElementById('walletInput').value.trim();
+            const resultDiv = document.getElementById('result');
+            const downloadBtn = document.getElementById('downloadBtn');
+
+            if (!walletAddress) {
+                resultDiv.innerHTML = '<div class="error-message">Please enter a wallet address</div>';
+                return;
+            }
+
+            resultDiv.innerHTML = '<p style="text-align: center; padding: 20px;">🔍 Querying blockchain...</p>';
+            downloadBtn.style.display = 'none';
+
+            try {
+                const response = await fetch(`${API_BASE}/verify/${walletAddress}`);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.message || 'Verification check failed');
+                }
+
+                const isVerified = data.is_verified;
+                const identity = data.identity;
+
+                let html = `
+                    <div class="result-card ${isVerified ? 'result-verified' : 'result-not-verified'}">
+                        <div class="result-header">
+                            <span class="result-icon">${isVerified ? '✅' : '❌'}</span>
+                            <span>${isVerified ? 'VERIFIED' : 'NOT VERIFIED'}</span>
+                        </div>
+
+                        <div class="note">
+                            <strong>Decision:</strong> ${data.decision}<br>
+                            ${data.note}
+                        </div>
+
+                        <div class="result-details">
+                            <div class="detail-row">
+                                <span class="detail-label">Wallet Address:</span>
+                                <span class="detail-value">${walletAddress.slice(0, 10)}...${walletAddress.slice(-8)}</span>
+                            </div>
+                `;
+
+                if (identity.has_verification) {
+                    html += `
+                            <div class="detail-row">
+                                <span class="detail-label">Trust Score:</span>
+                                <span class="detail-value">${identity.trust_score}/100</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Valid Until:</span>
+                                <span class="detail-value">${new Date(identity.valid_until).toLocaleDateString()}</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Verified At:</span>
+                                <span class="detail-value">${new Date(identity.verified_at).toLocaleDateString()}</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">IPFS CID:</span>
+                                <span class="detail-value">${identity.ipfs_cid.slice(0, 20)}...</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Status:</span>
+                                <span class="detail-value">${identity.active ? 'Active ✅' : 'Flagged ⚠️'}</span>
+                            </div>
+                    `;
+
+                    // Show download button if verified
+                    downloadBtn.style.display = 'block';
+                    downloadBtn.setAttribute('data-wallet', walletAddress);
+                }
+
+                html += `
+                        </div>
+
+                        <div class="note" style="margin-top: 15px;">
+                            🌐 <strong>Multi-Institution Trust:</strong><br>
+                            This verification was performed by another institution (Signer Bank).<br>
+                            Viewer Bank has NO access to their database or documents.<br>
+                            We only read the shared blockchain contract.
+                        </div>
+                    </div>
+                `;
+
+                resultDiv.innerHTML = html;
+
+            } catch (error) {
+                console.error('Error:', error);
+                resultDiv.innerHTML = `<div class="error-message">Error: ${error.message}</div>`;
+            }
+        }
+
+        async function downloadDocument() {
+            if (typeof window.ethereum === 'undefined') {
+                alert('MetaMask not detected. Please install MetaMask to download your document.');
+                return;
+            }
+
+            const walletAddress = document.getElementById('walletInput').value.trim();
+
+            try {
+                // Request MetaMask connection
+                const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                const connectedAddress = accounts[0];
+
+                if (connectedAddress.toLowerCase() !== walletAddress.toLowerCase()) {
+                    alert(`Connected wallet ${connectedAddress} does not match queried wallet ${walletAddress}`);
+                    return;
+                }
+
+                // Create message for signing
+                const message = 'Download my KYC document via Viewer Bank';
+
+                // Request signature from MetaMask
+                const signature = await window.ethereum.request({
+                    method: 'personal_sign',
+                    params: [message, connectedAddress],
+                });
+
+                console.log('Requesting document from Signer Bank via Viewer Bank...');
+
+                // Request document from Viewer Bank (which forwards to Signer Bank)
+                const response = await fetch(`${API_BASE}/request-document`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        wallet_address: connectedAddress,
+                        signature,
+                        message,
+                    }),
+                });
+
+                if (!response.ok) {
+                    const err = await response.json().catch(() => ({ message: 'Failed to download document' }));
+                    throw new Error(err.message || `HTTP ${response.status}`);
+                }
+
+                // Get filename from Content-Disposition header
+                const contentDisposition = response.headers.get('Content-Disposition');
+                const filenameMatch = contentDisposition?.match(/filename="(.+)"/);
+                const filename = filenameMatch ? filenameMatch[1] : 'kyc-document.pdf';
+
+                // Download file
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+
+                alert('✅ Document downloaded successfully!\n\nNote: Viewer Bank requested this from Signer Bank on your behalf using your wallet signature.');
+
+            } catch (error) {
+                console.error('Download error:', error);
+                alert('Failed to download document: ' + error.message);
+            }
+        }
+
+        // Auto-check if wallet address in URL
+        window.addEventListener('load', () => {
+            const params = new URLSearchParams(window.location.search);
+            const wallet = params.get('wallet');
+            if (wallet) {
+                document.getElementById('walletInput').value = wallet;
+                checkVerification();
+            }
+        });
+    </script>
+</body>
+</html>
