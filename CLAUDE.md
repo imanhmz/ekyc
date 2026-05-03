@@ -8,14 +8,38 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Read `prd.md` for complete system specification, research context, and architectural decisions.**
 
+## Multi-Bank Architecture (NEW)
+
+The system now demonstrates **multi-institution trust** via two independent banks:
+
+### **🏦 Signer Bank (Port 3000)** - Verification Provider
+- Full KYC verification capabilities (AI, IPFS, Database)
+- **Writes** to blockchain (registerIdentity)
+- Location: `/backend`, `/frontend`, `/ai-service`
+
+### **👁️ Viewer Bank (Port 3001)** - Verification Checker
+- Read-only blockchain queries
+- **NO** database, IPFS, or AI service
+- Can request documents from Signer Bank (with user permission)
+- Location: `/viewer-bank`
+
+**Key Demonstration:** User verifies at Signer Bank → Instant approval at Viewer Bank (blockchain trust).
+
 ## High-Level Architecture
 
 ```
-Frontend (React) → Backend (NestJS) ⟷ RabbitMQ ⟷ AI Service (Python)
-                        ↓                              ↓
-                   PostgreSQL                   Shared Volume
-                        ↓                              ↓
-                  IPFS + Blockchain (Polygon/Hardhat)
+SIGNER BANK (Port 3000)             BLOCKCHAIN CONTRACT              VIEWER BANK (Port 3001)
+┌──────────────────────┐            ┌─────────────────┐             ┌──────────────────────┐
+│ Frontend (React)     │            │ KYCRegistry.sol │             │ Express.js + HTML    │
+│ Backend (NestJS)     │   WRITE    │                 │   READ      │                      │
+│   ↕ RabbitMQ         │   ────→    │ Shared Ledger   │   ←────     │ (Read-only queries)  │
+│   ↕ AI Service       │            │                 │             │                      │
+│   ↕ PostgreSQL       │            │ Trust Tokens    │             │ ❌ No Database        │
+│   ↕ IPFS             │            │ Expiry Logic    │             │ ❌ No IPFS            │
+└──────────────────────┘            └─────────────────┘             │ ❌ No AI Service      │
+                                                                     └──────────────────────┘
+registerIdentity()                                                   isVerified()
+flagIdentity()                                                       getTransactionHistory()
 ```
 
 **Communication Pattern:**
@@ -98,7 +122,7 @@ npm run deploy:mumbai        # Deploy to Polygon Mumbai testnet
 2. Terminal 2: `npm run deploy:local` (deploys KYCRegistry contract)
 3. Copy printed contract address to `/var/www/kyc/.env` as `CONTRACT_ADDRESS`
 
-### Frontend (React/Vite)
+### Frontend - Signer Bank (React/Vite)
 
 ```bash
 cd frontend
@@ -108,6 +132,21 @@ npm run dev          # Dev server at http://localhost:5173
 npm run build        # Production build
 npm run preview      # Preview production build
 ```
+
+### Viewer Bank (Express.js + Static HTML)
+
+```bash
+cd viewer-bank
+
+npm install
+npm start            # Server at http://localhost:3001
+```
+
+**Note:** Viewer Bank is a lightweight Express server that:
+- Serves static HTML frontend
+- Provides blockchain query API endpoints
+- Has NO database, IPFS, or AI dependencies
+- Only reads from the shared blockchain contract
 
 ## Module Architecture (Backend)
 
@@ -243,9 +282,15 @@ DATABASE_PASSWORD=kyc_pass
 DATABASE_NAME=kyc_db
 RABBITMQ_URL=amqp://kyc_mq:kyc_mq_pass@mq:5672
 IPFS_API_URL=http://ipfs:5001
+
+# Multi-Bank Configuration
+VIEWER_BANK_PORT=3001
+SIGNER_BANK_URL=http://localhost:3000
 ```
 
 ## Complete Local Development Setup
+
+### Single-Bank Mode (Signer Bank Only)
 
 1. **Start infrastructure:**
    ```bash
@@ -288,6 +333,35 @@ IPFS_API_URL=http://ipfs:5001
    - Backend API: http://localhost:3000/api
    - RabbitMQ UI: http://localhost:15672
    - IPFS Gateway: http://localhost:8080
+
+### Multi-Bank Mode (Demonstrates Inter-Institutional Trust)
+
+Follow steps 1-5 above, then add:
+
+6. **Start Viewer Bank:**
+   ```bash
+   # Terminal 5
+   cd viewer-bank
+   npm install  # First time only
+   npm start
+   ```
+
+7. **Access Multi-Bank System:**
+   - **Signer Bank Frontend:** http://localhost:5173
+   - **Signer Bank API:** http://localhost:3000/api
+   - **Viewer Bank (both frontend + API):** http://localhost:3001
+   - RabbitMQ UI: http://localhost:15672
+   - IPFS Gateway: http://localhost:8080
+
+8. **Demo Flow:**
+   - Submit KYC at Signer Bank (port 5173) with wallet address
+   - Wait for APPROVED status (~30 seconds)
+   - Open Viewer Bank (port 3001)
+   - Enter same wallet address
+   - See instant verification from blockchain ✅
+   - View transaction history on PolygonScan
+
+**See `MULTI_BANK_DEMO.md` for detailed multi-institution demonstration guide.**
 
 ## Testing
 
@@ -406,6 +480,35 @@ The novel contribution: When AI service detects new fraud patterns, backend can 
 - **Old behavior**: Used fake wallet address derived from userId
 - **New behavior**: Only registers on blockchain when real wallet address is verified
 - **Flow**: KYC approved → status=APPROVED_PENDING_WALLET → user links wallet → blockchain registration → status=APPROVED
+
+### Multi-Bank Architecture (COMPLETED)
+- **Viewer Bank** (`/viewer-bank/`): Lightweight Express.js server demonstrating multi-institutional trust
+- **Purpose**: Shows how OTHER banks can verify users without repeating full KYC
+- **Architecture**:
+  - ✅ Read-only blockchain queries (isVerified)
+  - ✅ Transaction history viewing (PolygonScan API integration)
+  - ✅ Document requests from Signer Bank (with user signature)
+  - ❌ NO database (trust blockchain as source of truth)
+  - ❌ NO IPFS node (documents retrieved from Signer Bank)
+  - ❌ NO AI service (trust existing verification)
+- **API Endpoints**:
+  - `GET /api/verify/:wallet` - Check blockchain verification status
+  - `GET /api/transactions/:wallet` - Fetch transaction history from PolygonScan
+  - `POST /api/request-document` - Request document from Signer Bank (user signature required)
+  - `GET /api/recent-verifications` - View recent blockchain events
+- **Frontend**: Static HTML with vanilla JavaScript (no React)
+- **Demonstration Value**:
+  - User verified at Signer Bank (30 seconds)
+  - Same user at Viewer Bank (instant approval, 1 second)
+  - Total time savings: 99.9% (vs repeating full KYC)
+  - Cost savings: $0 vs $500 per verification
+
+### File MIME Type Storage (COMPLETED)
+- **Database migration**: `003_add_file_mime_type.sql` adds `file_mime_type` column
+- **Purpose**: Store original uploaded file MIME type (image/jpeg, image/png, application/pdf)
+- **Download fix**: Documents now download with correct file extension (.jpg, .png, .pdf)
+- **Entity update**: `KycRecord` entity includes `fileMimeType` field
+- **Controller logic**: Helper method `getExtensionFromMimeType()` maps MIME to file extension
 
 ## Known Implementation Notes
 

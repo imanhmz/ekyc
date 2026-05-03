@@ -272,6 +272,84 @@
         .comparison-table tr:last-child td {
             border-bottom: none;
         }
+
+        .transaction-item {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .transaction-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .transaction-hash {
+            font-family: monospace;
+            color: #667eea;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        .transaction-time {
+            color: #666;
+            font-size: 12px;
+        }
+
+        .transaction-details {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            font-size: 14px;
+        }
+
+        .transaction-detail {
+            padding: 8px;
+            background: #f8f9ff;
+            border-radius: 4px;
+        }
+
+        .transaction-detail-label {
+            font-weight: 600;
+            color: #666;
+            font-size: 12px;
+            margin-bottom: 4px;
+        }
+
+        .transaction-detail-value {
+            color: #333;
+            font-family: monospace;
+            font-size: 12px;
+            word-break: break-all;
+        }
+
+        .btn-link {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 8px 15px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 12px;
+            transition: background 0.3s;
+        }
+
+        .btn-link:hover {
+            background: #5568d3;
+        }
+
+        .no-transactions {
+            background: #f8f9ff;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            color: #666;
+        }
     </style>
 </head>
 <body>
@@ -319,6 +397,16 @@
             </button>
 
             <div id="result"></div>
+
+            <!-- Transaction History Section -->
+            <div id="transactionHistory" style="display: none; margin-top: 30px;">
+                <h3 style="margin-bottom: 15px;">🔗 Blockchain Transaction History</h3>
+                <div class="info-box">
+                    📊 <strong>Public Ledger:</strong> All blockchain transactions are public and immutable.
+                    Anyone can verify these records on PolygonScan.
+                </div>
+                <div id="transactionList"></div>
+            </div>
         </div>
 
         <!-- Comparison Table -->
@@ -484,9 +572,175 @@
 
                 resultDiv.innerHTML = html;
 
+                // Load transaction history
+                if (identity.has_verification) {
+                    loadTransactionHistory(walletAddress);
+                }
+
             } catch (error) {
                 console.error('Error:', error);
                 resultDiv.innerHTML = `<div class="error-message">Error: ${error.message}</div>`;
+            }
+        }
+
+        async function loadTransactionHistory(walletAddress) {
+            const transactionHistoryDiv = document.getElementById('transactionHistory');
+            const transactionListDiv = document.getElementById('transactionList');
+
+            transactionHistoryDiv.style.display = 'block';
+            transactionListDiv.innerHTML = '<p style="text-align: center; padding: 20px;">📡 Loading blockchain transactions...</p>';
+
+            try {
+                // Try fetching from Viewer Bank backend first (handles CORS)
+                let data;
+                try {
+                    const response = await fetch(`${API_BASE}/transactions/${walletAddress}`);
+                    const backendData = await response.json();
+
+                    if (response.ok && backendData.kyc_transactions) {
+                        // Use backend response
+                        data = {
+                            status: '1',
+                            result: backendData.kyc_transactions.map(tx => ({
+                                hash: tx.hash,
+                                blockNumber: tx.block_number,
+                                timeStamp: new Date(tx.timestamp).getTime() / 1000,
+                                to: tx.to,
+                                input: tx.method_id,
+                                gasUsed: tx.gas_used,
+                                gasPrice: tx.gas_price,
+                                txreceipt_status: tx.status === 'success' ? '1' : '0'
+                            }))
+                        };
+                    }
+                } catch (backendError) {
+                    console.warn('Backend API failed, trying PolygonScan directly:', backendError);
+
+                    // Fallback to direct PolygonScan API
+                    const POLYGONSCAN_API = 'https://api-amoy.polygonscan.com/api';
+                    const response = await fetch(
+                        `${POLYGONSCAN_API}?module=account&action=txlist&address=${walletAddress}&startblock=0&endblock=99999999&sort=desc`
+                    );
+                    data = await response.json();
+                }
+
+                if (data.status === '1' && data.result && data.result.length > 0) {
+                    // Filter transactions related to KYC contract
+                    const CONTRACT_ADDRESS = '0xee43B05381A5Aa5F3738E532B310bb71C09D253b';
+                    const kycTransactions = data.result.filter(tx =>
+                        tx.to && tx.to.toLowerCase() === CONTRACT_ADDRESS.toLowerCase()
+                    );
+
+                    if (kycTransactions.length === 0) {
+                        transactionListDiv.innerHTML = `
+                            <div class="no-transactions">
+                                <p>📭 No KYC-related transactions found for this wallet</p>
+                                <p style="margin-top: 10px; font-size: 14px;">
+                                    <a href="https://amoy.polygonscan.com/address/${walletAddress}"
+                                       target="_blank"
+                                       class="btn-link">
+                                        View All Transactions on PolygonScan →
+                                    </a>
+                                </p>
+                            </div>
+                        `;
+                        return;
+                    }
+
+                    // Display KYC transactions (limit to 5 most recent)
+                    const recentTransactions = kycTransactions.slice(0, 5);
+                    let html = '';
+
+                    recentTransactions.forEach(tx => {
+                        const timestamp = new Date(parseInt(tx.timeStamp) * 1000);
+                        const gasUsed = (parseInt(tx.gasUsed) * parseInt(tx.gasPrice) / 1e18).toFixed(6);
+                        const methodId = tx.input.substring(0, 10);
+
+                        // Decode method name
+                        let methodName = 'Unknown';
+                        if (methodId === '0xc18d5038') methodName = 'registerIdentity()';
+                        if (methodId === '0x6f5f67b9') methodName = 'flagIdentity()';
+                        if (methodId === '0x9b2bcb7b') methodName = 'revokeIdentity()';
+
+                        const isSuccess = tx.txreceipt_status === '1';
+
+                        html += `
+                            <div class="transaction-item">
+                                <div class="transaction-header">
+                                    <span class="transaction-hash">${tx.hash.substring(0, 20)}...${tx.hash.substring(tx.hash.length - 10)}</span>
+                                    <span class="transaction-time">${timestamp.toLocaleString()}</span>
+                                </div>
+
+                                <div class="transaction-details">
+                                    <div class="transaction-detail">
+                                        <div class="transaction-detail-label">Method Called</div>
+                                        <div class="transaction-detail-value">${methodName}</div>
+                                    </div>
+
+                                    <div class="transaction-detail">
+                                        <div class="transaction-detail-label">Status</div>
+                                        <div class="transaction-detail-value">${isSuccess ? '✅ Success' : '❌ Failed'}</div>
+                                    </div>
+
+                                    <div class="transaction-detail">
+                                        <div class="transaction-detail-label">Block Number</div>
+                                        <div class="transaction-detail-value">#${tx.blockNumber}</div>
+                                    </div>
+
+                                    <div class="transaction-detail">
+                                        <div class="transaction-detail-label">Gas Used</div>
+                                        <div class="transaction-detail-value">${gasUsed} POL</div>
+                                    </div>
+                                </div>
+
+                                <a href="https://amoy.polygonscan.com/tx/${tx.hash}"
+                                   target="_blank"
+                                   class="btn-link">
+                                    🔍 View Full Transaction on PolygonScan →
+                                </a>
+                            </div>
+                        `;
+                    });
+
+                    html += `
+                        <div style="text-align: center; margin-top: 20px;">
+                            <a href="https://amoy.polygonscan.com/address/${walletAddress}"
+                               target="_blank"
+                               class="btn btn-secondary">
+                                📜 View All ${data.result.length} Transactions on PolygonScan
+                            </a>
+                        </div>
+                    `;
+
+                    transactionListDiv.innerHTML = html;
+
+                } else {
+                    transactionListDiv.innerHTML = `
+                        <div class="no-transactions">
+                            <p>📭 No transactions found for this wallet</p>
+                            <p style="margin-top: 10px; font-size: 14px;">
+                                <a href="https://amoy.polygonscan.com/address/${walletAddress}"
+                                   target="_blank"
+                                   class="btn-link">
+                                    View on PolygonScan →
+                                </a>
+                            </p>
+                        </div>
+                    `;
+                }
+
+            } catch (error) {
+                console.error('Error loading transactions:', error);
+                transactionListDiv.innerHTML = `
+                    <div class="error-message">
+                        Failed to load transaction history.
+                        <a href="https://amoy.polygonscan.com/address/${walletAddress}"
+                           target="_blank"
+                           style="color: inherit; text-decoration: underline;">
+                            View directly on PolygonScan
+                        </a>
+                    </div>
+                `;
             }
         }
 

@@ -203,9 +203,10 @@ POST   /api/kyc/my-document         - Download document (user)
 
 ### Viewer Bank (Port 3001)
 ```
-GET    /api/verify/:wallet          - Check verification status
-POST   /api/request-document        - Request document from Signer Bank
-GET    /api/recent-verifications    - See recent blockchain events
+GET    /api/verify/:wallet             - Check verification status
+POST   /api/request-document           - Request document from Signer Bank
+GET    /api/transactions/:wallet       - Get transaction history from blockchain
+GET    /api/recent-verifications       - See recent blockchain events
 ```
 
 ---

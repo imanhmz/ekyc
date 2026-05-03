@@ -186,6 +186,86 @@ app.post('/api/request-document', async (req, res) => {
     }
 });
 
+// Get transaction history for a wallet address from PolygonScan
+app.get('/api/transactions/:wallet_address', async (req, res) => {
+    const { wallet_address } = req.params;
+
+    if (!ethers.isAddress(wallet_address)) {
+        return res.status(400).json({
+            error: 'INVALID_WALLET_ADDRESS',
+            message: 'Invalid Ethereum address format'
+        });
+    }
+
+    try {
+        const POLYGONSCAN_API = 'https://api-amoy.polygonscan.com/api';
+        const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS;
+
+        // Fetch transactions from PolygonScan API
+        const response = await fetch(
+            `${POLYGONSCAN_API}?module=account&action=txlist&address=${wallet_address}&startblock=0&endblock=99999999&sort=desc`
+        );
+
+        const data = await response.json();
+
+        if (data.status !== '1') {
+            return res.json({
+                wallet_address,
+                transactions: [],
+                total_count: 0,
+                kyc_transactions: [],
+                polygonscan_url: `https://amoy.polygonscan.com/address/${wallet_address}`
+            });
+        }
+
+        // Filter KYC-related transactions
+        const kycTransactions = data.result.filter(tx =>
+            tx.to && tx.to.toLowerCase() === CONTRACT_ADDRESS.toLowerCase()
+        );
+
+        // Format transactions
+        const formattedTransactions = kycTransactions.map(tx => {
+            const methodId = tx.input.substring(0, 10);
+            let methodName = 'Unknown';
+
+            if (methodId === '0xc18d5038') methodName = 'registerIdentity()';
+            if (methodId === '0x6f5f67b9') methodName = 'flagIdentity()';
+            if (methodId === '0x9b2bcb7b') methodName = 'revokeIdentity()';
+
+            return {
+                hash: tx.hash,
+                block_number: tx.blockNumber,
+                timestamp: new Date(parseInt(tx.timeStamp) * 1000).toISOString(),
+                from: tx.from,
+                to: tx.to,
+                method_id: methodId,
+                method_name: methodName,
+                gas_used: tx.gasUsed,
+                gas_price: tx.gasPrice,
+                status: tx.txreceipt_status === '1' ? 'success' : 'failed',
+                polygonscan_url: `https://amoy.polygonscan.com/tx/${tx.hash}`
+            };
+        });
+
+        res.json({
+            wallet_address,
+            total_transactions: data.result.length,
+            kyc_transactions: formattedTransactions,
+            kyc_transaction_count: formattedTransactions.length,
+            polygonscan_url: `https://amoy.polygonscan.com/address/${wallet_address}`,
+            contract_address: CONTRACT_ADDRESS
+        });
+
+    } catch (error) {
+        console.error('Transaction fetch error:', error);
+        res.status(500).json({
+            error: 'TRANSACTION_FETCH_FAILED',
+            message: error.message,
+            polygonscan_url: `https://amoy.polygonscan.com/address/${wallet_address}`
+        });
+    }
+});
+
 // Get all verification events from blockchain (optional: for audit/demo)
 app.get('/api/recent-verifications', async (req, res) => {
     if (!blockchainReady) {
