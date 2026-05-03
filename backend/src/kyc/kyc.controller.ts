@@ -66,8 +66,12 @@ export class KycController {
     @Get('document/:kyc_id')
     async getDocument(@Param('kyc_id') kycId: string, @Res() res: Response) {
         const { buffer, mimetype } = await this.kycService.getDocument(kycId);
+
+        // Determine file extension from MIME type
+        const extension = this.getExtensionFromMimeType(mimetype);
+
         res.setHeader('Content-Type', mimetype);
-        res.setHeader('Content-Disposition', `attachment; filename="${kycId}.pdf"`);
+        res.setHeader('Content-Disposition', `attachment; filename="${kycId}.${extension}"`);
         res.send(buffer);
     }
 
@@ -79,8 +83,27 @@ export class KycController {
             dto.signature,
             dto.message,
         );
+
+        // Determine file extension from MIME type
+        const extension = this.getExtensionFromMimeType(mimetype);
+
         res.setHeader('Content-Type', mimetype);
-        res.setHeader('Content-Disposition', `attachment; filename="kyc-${kycId}.pdf"`);
+        res.setHeader('Content-Disposition', `attachment; filename="kyc-${kycId}.${extension}"`);
         res.send(buffer);
+    }
+
+    /**
+     * Helper method to get file extension from MIME type
+     */
+    private getExtensionFromMimeType(mimetype: string): string {
+        const mimeToExt: Record<string, string> = {
+            'image/jpeg': 'jpg',
+            'image/jpg': 'jpg',
+            'image/png': 'png',
+            'image/gif': 'gif',
+            'image/webp': 'webp',
+            'application/pdf': 'pdf',
+        };
+        return mimeToExt[mimetype] || 'bin';
     }
 }

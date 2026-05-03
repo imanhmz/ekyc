@@ -34,6 +34,9 @@ export class KycRecord {
     @Column({ name: 'document_type', length: 50, nullable: true })
     documentType: string;
 
+    @Column({ name: 'file_mime_type', length: 100, nullable: true })
+    fileMimeType: string;
+
     @Column({ name: 'ipfs_cid', nullable: true })
     ipfsCid: string;
 

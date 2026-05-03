@@ -59,7 +59,12 @@ export class KycService {
 
         // Save to shared volume
         const ext = file.originalname.split('.').pop();
-        const record = this.kycRepo.create({ userId, status: 'PENDING', walletAddress });
+        const record = this.kycRepo.create({
+            userId,
+            status: 'PENDING',
+            walletAddress,
+            fileMimeType: file.mimetype  // Store original MIME type
+        });
         await this.kycRepo.save(record);
 
         const filename = `${record.id}.${ext}`;
@@ -145,6 +150,15 @@ export class KycService {
                     const uploadResult = await this.ipfsService.addFile(record.documentPath);
                     ipfsCid = uploadResult.cid;
                     encryptionKey = uploadResult.encryptionKey;
+
+                    // Log IPFS URL for newly uploaded document
+                    const ipfsGateway = process.env.IPFS_GATEWAY_URL || 'http://localhost:8080';
+                    console.log('✅ Document uploaded to IPFS (ENCRYPTED):');
+                    console.log(`   CID: ${ipfsCid}`);
+                    console.log(`   Gateway URL: ${ipfsGateway}/ipfs/${ipfsCid}`);
+                    console.log(`   ⚠️  Note: File is AES-256-GCM encrypted. Direct gateway access shows encrypted data.`);
+                    console.log(`   ℹ️  Use download API endpoints to retrieve decrypted document.`);
+                    console.log(`   KYC ID: ${record.id}`);
                 }
             } catch (e) {
                 console.warn('IPFS upload failed, continuing without CID:', e.message);
@@ -328,13 +342,8 @@ export class KycService {
             // Decrypt using stored key
             const decryptedBuffer = this.cryptoService.decryptBuffer(encryptedBuffer, record.encryptionKey);
 
-            // Determine MIME type from document type or use generic
-            const mimetypes: Record<string, string> = {
-                'PASSPORT': 'application/pdf',
-                'NATIONAL_ID': 'image/jpeg',
-                'DRIVERS_LICENCE': 'image/jpeg',
-            };
-            const mimetype = mimetypes[record.documentType || ''] || 'application/octet-stream';
+            // Use stored MIME type or fallback to generic
+            const mimetype = record.fileMimeType || 'application/octet-stream';
 
             return {
                 buffer: decryptedBuffer,
@@ -365,11 +374,14 @@ export class KycService {
             });
         }
 
-        // Find KYC record by wallet address
-        const record = await this.kycRepo.findOne({
-            where: { walletAddress: walletAddress },
-            order: { createdAt: 'DESC' }  // Get most recent if multiple
-        });
+        // Find KYC record by wallet address (case-insensitive)
+        const records = await this.kycRepo
+            .createQueryBuilder('kyc')
+            .where('LOWER(kyc.walletAddress) = LOWER(:walletAddress)', { walletAddress })
+            .orderBy('kyc.createdAt', 'DESC')
+            .getMany();
+
+        const record = records[0] || null;
 
         if (!record) {
             throw new NotFoundException(`No KYC record found for wallet ${walletAddress}`);
@@ -398,13 +410,8 @@ export class KycService {
             // Decrypt using stored key
             const decryptedBuffer = this.cryptoService.decryptBuffer(encryptedBuffer, record.encryptionKey);
 
-            // Determine MIME type from document type or use generic
-            const mimetypes: Record<string, string> = {
-                'PASSPORT': 'application/pdf',
-                'NATIONAL_ID': 'image/jpeg',
-                'DRIVERS_LICENCE': 'image/jpeg',
-            };
-            const mimetype = mimetypes[record.documentType || ''] || 'application/octet-stream';
+            // Use stored MIME type or fallback to generic
+            const mimetype = record.fileMimeType || 'application/octet-stream';
 
             // Log access for audit trail
             await this.logAudit(record.id, record.status, record.status, 'user', {
