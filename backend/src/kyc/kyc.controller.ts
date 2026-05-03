@@ -16,6 +16,7 @@ import { Response } from 'express';
 import { KycService } from './kyc.service';
 import { SubmitKycDto } from './dto/submit-kyc.dto';
 import { LinkWalletDto } from './dto/link-wallet.dto';
+import { DownloadDocumentDto } from './dto/download-document.dto';
 
 @Controller('kyc')
 export class KycController {
@@ -67,6 +68,19 @@ export class KycController {
         const { buffer, mimetype } = await this.kycService.getDocument(kycId);
         res.setHeader('Content-Type', mimetype);
         res.setHeader('Content-Disposition', `attachment; filename="${kycId}.pdf"`);
+        res.send(buffer);
+    }
+
+    @Post('my-document')
+    @HttpCode(HttpStatus.OK)
+    async downloadMyDocument(@Body() dto: DownloadDocumentDto, @Res() res: Response) {
+        const { buffer, mimetype, kycId } = await this.kycService.downloadMyDocument(
+            dto.wallet_address,
+            dto.signature,
+            dto.message,
+        );
+        res.setHeader('Content-Type', mimetype);
+        res.setHeader('Content-Disposition', `attachment; filename="kyc-${kycId}.pdf"`);
         res.send(buffer);
     }
 }

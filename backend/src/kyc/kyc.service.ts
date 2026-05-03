@@ -95,6 +95,7 @@ export class KycService {
             trust_score: record.trustScore,
             ipfs_cid: record.ipfsCid,
             blockchain_tx_hash: record.blockchainTxHash,
+            wallet_address: record.walletAddress,
             token_expires_at: record.tokenExpiresAt,
             created_at: record.createdAt,
             rejection_reason: record.rejectionReason,
@@ -338,6 +339,83 @@ export class KycService {
             return {
                 buffer: decryptedBuffer,
                 mimetype,
+            };
+        } catch (e) {
+            throw new BadRequestException(`Failed to retrieve document: ${e.message}`);
+        }
+    }
+
+    /**
+     * User downloads their own document by proving wallet ownership via signature
+     */
+    async downloadMyDocument(walletAddress: string, signature: string, message: string): Promise<{ buffer: Buffer; mimetype: string; kycId: string }> {
+        // Verify the signature matches the wallet address
+        try {
+            const recoveredAddress = verifyMessage(message, signature);
+            if (recoveredAddress.toLowerCase() !== walletAddress.toLowerCase()) {
+                throw new BadRequestException({
+                    error: 'SIGNATURE_MISMATCH',
+                    message: 'Signature does not match provided wallet address',
+                });
+            }
+        } catch (e) {
+            throw new BadRequestException({
+                error: 'INVALID_SIGNATURE',
+                message: 'Failed to verify signature: ' + e.message,
+            });
+        }
+
+        // Find KYC record by wallet address
+        const record = await this.kycRepo.findOne({
+            where: { walletAddress: walletAddress },
+            order: { createdAt: 'DESC' }  // Get most recent if multiple
+        });
+
+        if (!record) {
+            throw new NotFoundException(`No KYC record found for wallet ${walletAddress}`);
+        }
+
+        if (!record.ipfsCid) {
+            throw new NotFoundException('No document uploaded to IPFS for this wallet');
+        }
+
+        if (!record.encryptionKey) {
+            throw new BadRequestException('No encryption key available for this document');
+        }
+
+        // Only allow approved documents to be downloaded
+        if (record.status !== 'APPROVED') {
+            throw new BadRequestException({
+                error: 'DOCUMENT_NOT_APPROVED',
+                message: `Document status is ${record.status}. Only APPROVED documents can be downloaded.`,
+            });
+        }
+
+        try {
+            // Download encrypted document from IPFS
+            const encryptedBuffer = await this.ipfsService.getFile(record.ipfsCid);
+
+            // Decrypt using stored key
+            const decryptedBuffer = this.cryptoService.decryptBuffer(encryptedBuffer, record.encryptionKey);
+
+            // Determine MIME type from document type or use generic
+            const mimetypes: Record<string, string> = {
+                'PASSPORT': 'application/pdf',
+                'NATIONAL_ID': 'image/jpeg',
+                'DRIVERS_LICENCE': 'image/jpeg',
+            };
+            const mimetype = mimetypes[record.documentType || ''] || 'application/octet-stream';
+
+            // Log access for audit trail
+            await this.logAudit(record.id, record.status, record.status, 'user', {
+                action: 'document_downloaded',
+                wallet_address: walletAddress,
+            });
+
+            return {
+                buffer: decryptedBuffer,
+                mimetype,
+                kycId: record.id,
             };
         } catch (e) {
             throw new BadRequestException(`Failed to retrieve document: ${e.message}`);

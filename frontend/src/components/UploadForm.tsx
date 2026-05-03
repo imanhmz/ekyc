@@ -2,6 +2,7 @@ import React, { useState, useCallback, DragEvent } from 'react';
 import { submitKyc, getStatus, type StatusResponse } from '../api';
 import { StatusBadge } from './StatusBadge';
 import { WalletLinkForm } from './WalletLinkForm';
+import { MyDocumentDownload } from './MyDocumentDownload';
 
 export function UploadForm() {
     const [userId, setUserId] = useState<string>(() => crypto.randomUUID());
@@ -188,6 +189,14 @@ export function UploadForm() {
 
                     {status?.status === 'APPROVED_PENDING_WALLET' && (
                         <WalletLinkForm kycId={kycId} onSuccess={handleCheckStatus} />
+                    )}
+
+                    {status?.status === 'APPROVED' && status.wallet_address && (
+                        <div className="divider" />
+                    )}
+
+                    {status?.status === 'APPROVED' && status.wallet_address && (
+                        <MyDocumentDownload walletAddress={status.wallet_address} />
                     )}
                 </div>
             )}

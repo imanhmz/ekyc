@@ -394,9 +394,13 @@ The novel contribution: When AI service detects new fraud patterns, backend can 
 - **Blockchain registration**: Only occurs after wallet is verified via signature
 
 ### Document Retrieval (COMPLETED)
-- **Endpoint**: `GET /api/kyc/document/:kyc_id`
+- **Institution endpoint**: `GET /api/kyc/document/:kyc_id` - Admin access by KYC ID
+- **User endpoint**: `POST /api/kyc/my-document` - Users download their own documents via wallet signature
 - **Flow**: Download from IPFS → Decrypt with stored key → Return original file
-- **Access control**: Institution-only (requires encryption key from database)
+- **Access control**:
+  - Institution: Direct access with kyc_id (no auth for demo)
+  - Users: Must prove wallet ownership via EIP-191 signature
+  - Only APPROVED documents can be downloaded by users
 
 ### Conditional Blockchain Registration
 - **Old behavior**: Used fake wallet address derived from userId

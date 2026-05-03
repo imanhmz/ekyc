@@ -12,6 +12,7 @@ export interface StatusResponse {
     trust_score?: number;
     ipfs_cid?: string;
     blockchain_tx_hash?: string;
+    wallet_address?: string;
     token_expires_at?: string;
     created_at?: string;
     rejection_reason?: string;
