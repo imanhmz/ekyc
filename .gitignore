@@ -1,11 +1,13 @@
 # General
+Thesis/*
+!Thesis/Resources
 node_modules/
 .DS_Store
 .env
 .env.*
 !.env.example
 *.log
-
+temp
 # Docker/Volumes
 shared_uploads/
 postgres_data/
