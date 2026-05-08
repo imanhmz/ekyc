@@ -22,6 +22,7 @@
 - **Expiring Trust Tokens**: Verifications expire after 90-365 days based on trust score
 - **Live-Check Mechanism**: Identities can be flagged for re-verification if fraud patterns emerge
 - **Wallet Ownership Proof**: Cryptographic signatures verify wallet ownership
+- **Zero-Knowledge Proof Verification**: Groth16 proof proves trust score ≥ 75 on-chain without revealing the exact score
 
 ### Architecture
 ```
@@ -377,16 +378,19 @@ const expiresAt = new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000);
 │ 2. Encrypt document (crypto.svc) │      │    │    REJECTED          │
 │ 3. Upload to IPFS (ipfs.svc)    │      │    │ 2. Save rejection    │
 │    - Returns: IPFS CID           │      │    │    reason            │
-│ 4. Save to DB:                   │      │    │ 3. Delete file       │
-│    - ipfs_cid                    │      │    └──────────────────────┘
+│ 4. Generate ZKP (zkp.svc)       │      │    │ 3. Delete file       │
+│    - Groth16 proof: score >= 75  │      │    └──────────────────────┘
+│    - ~2-5 seconds overhead       │      │
+│ 5. Save to DB:                   │      │
+│    - ipfs_cid                    │      │
 │    - encryption_key               │      │
 │    - trust_score                 │      │
 │    - ocr_data, deepfake_result   │      │
-│ 5. Calculate token expiry:       │      │
+│ 6. Calculate token expiry:       │      │
 │    - Score >= 95: +365 days      │      │
 │    - Score 80-94: +180 days      │      │
 │    - Score 75-79: +90 days       │      │
-│ 6. Check wallet address...       │      │
+│ 7. Check wallet address...       │      │
 └───────────────┬───────────────────┘      │
                 │                           │
         ┌───────┴────────┐                 │
@@ -404,6 +408,8 @@ const expiresAt = new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000);
 │    - ipfs_cid     │ │ 3. Then → Blockchain Path│
 │    - validUntil   │ └──────────────────────────┘
 │    - trustScore   │
+│    - pA, pB, pC   │
+│      (ZKP proof)  │
 │ 2. Get TX hash    │
 │ 3. Set status:    │
 │    APPROVED       │
@@ -478,13 +484,15 @@ const expiresAt = new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000);
                                     ↓
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ SMART CONTRACT: KYCRegistry.sol → registerIdentity()                   │
-│ mapping[0x742d35Cc...] = Identity({                                     │
-│   ipfsCid: "QmX7M9CiY...",                                             │
-│   validUntil: 1736938200 (Unix timestamp),                             │
-│   trustScore: 87,                                                       │
-│   active: true,                                                         │
-│   verifiedAt: block.timestamp                                           │
-│ })                                                                      │
+│ 1. verifier.verifyProof(pA, pB, pC, [75]) → must return true          │
+│    (Groth16Verifier checks ZKP on-chain; reverts if invalid)           │
+│ 2. mapping[0x742d35Cc...] = Identity({                                 │
+│      ipfsCid: "QmX7M9CiY...",                                          │
+│      validUntil: 1736938200 (Unix timestamp),                          │
+│      trustScore: 87,                                                   │
+│      active: true,                                                     │
+│      verifiedAt: block.timestamp                                       │
+│    })                                                                   │
 │ emit IdentityRegistered(address, ipfsCid, validUntil, trustScore)     │
 └─────────────────────────────────────────────────────────────────────────┘
                                     ↓
@@ -1001,6 +1009,11 @@ curl http://localhost:8080/ipfs/{ipfs_cid}
 **Gas**: Transaction fee paid to blockchain miners (in ETH/MATIC)
 **MetaMask**: Browser wallet extension for Ethereum
 **EIP-191**: Ethereum standard for signed data (personal_sign method)
+**ZKP (Zero-Knowledge Proof)**: Cryptographic proof that a fact is true without revealing the underlying data
+**Groth16**: A ZKP proving scheme; used here to prove trust score ≥ 75 on-chain
+**snarkjs**: JavaScript library used to generate Groth16 proofs off-chain
+**circom**: Circuit language used to define the ZKP constraint (TrustScore.circom)
+**Groth16Verifier**: Auto-generated Solidity contract that verifies ZKP proofs on-chain
 **OCR**: Optical Character Recognition - extracting text from images
 **Deepfake**: AI-generated fake identity document or photo
 **GDPR**: General Data Protection Regulation - EU privacy law
@@ -1034,6 +1047,6 @@ curl http://localhost:8080/ipfs/{ipfs_cid}
 
 ---
 
-**Last Updated**: 2026-05-03
+**Last Updated**: 2026-05-08
 **Version**: 1.0
 **System Status**: Production-ready (AI validation mocked)
