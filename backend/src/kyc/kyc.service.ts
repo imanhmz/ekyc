@@ -10,6 +10,7 @@ import { KycAuditLog } from '../database/kyc-audit-log.entity';
 import { User } from '../database/user.entity';
 import { QueueService, AiResultPayload } from '../queue/queue.service';
 import { BlockchainService } from '../blockchain/blockchain.service';
+import { ZkpService } from '../blockchain/zkp.service';
 import { IpfsService } from '../ipfs/ipfs.service';
 import { CryptoService } from '../ipfs/crypto.service';
 import { verifyMessage } from 'ethers';
@@ -29,6 +30,7 @@ export class KycService {
         private readonly userRepo: Repository<User>,
         private readonly queueService: QueueService,
         private readonly blockchainService: BlockchainService,
+        private readonly zkpService: ZkpService,
         private readonly ipfsService: IpfsService,
         private readonly cryptoService: CryptoService,
     ) {
@@ -193,11 +195,13 @@ export class KycService {
             let txHash: string | null = null;
             try {
                 const cidToRegister = ipfsCid || '';
+                const proof = await this.zkpService.generateProof(trustScore);
                 txHash = await this.blockchainService.registerIdentity(
                     record.walletAddress,
                     cidToRegister,
                     Math.floor(expiresAt.getTime() / 1000),
                     trustScore,
+                    proof,
                 );
                 console.log({ txHash });
             } catch (e) {
@@ -277,11 +281,13 @@ export class KycService {
 
             try {
                 const cidToRegister = record.ipfsCid || '';
+                const proof = await this.zkpService.generateProof(record.trustScore || 0);
                 txHash = await this.blockchainService.registerIdentity(
                     walletAddress,
                     cidToRegister,
                     Math.floor((record.tokenExpiresAt?.getTime() || Date.now()) / 1000),
                     record.trustScore || 0,
+                    proof,
                 );
                 console.log('Blockchain registration after wallet link:', { txHash });
             } catch (e) {

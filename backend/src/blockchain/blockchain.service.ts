@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ethers } from 'ethers';
 import * as KYCRegistryAbi from './KYCRegistry.abi.json';
+import { ZkProof } from './zkp.service';
 
 @Injectable()
 export class BlockchainService implements OnModuleInit {
@@ -33,9 +34,18 @@ export class BlockchainService implements OnModuleInit {
         }
     }
 
-    async registerIdentity(address: string, ipfsCid: string, validUntil: number, trustScore: number): Promise<string | null> {
+    async registerIdentity(
+        address: string,
+        ipfsCid: string,
+        validUntil: number,
+        trustScore: number,
+        proof?: ZkProof | null,
+    ): Promise<string | null> {
         if (!this.ready) return null;
-        const tx = await this.contract.registerIdentity(address, ipfsCid, validUntil, trustScore);
+        const pA = proof?.pA ?? [0n, 0n];
+        const pB = proof?.pB ?? [[0n, 0n], [0n, 0n]];
+        const pC = proof?.pC ?? [0n, 0n];
+        const tx = await this.contract.registerIdentity(address, ipfsCid, validUntil, trustScore, pA, pB, pC);
         const receipt = await tx.wait();
         return receipt.hash;
     }
