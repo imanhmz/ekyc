@@ -14,7 +14,9 @@ const express = require('express');
 const cors = require('cors');
 const { ethers } = require('ethers');
 const path = require('path');
+// In Docker env vars come from docker-compose; locally fall back to project root .env
 require('dotenv').config({ path: path.join(__dirname, '../../.env') });
+require('dotenv').config(); // also check local .env if present
 
 const app = express();
 const PORT = process.env.VIEWER_BANK_PORT || 3001;
@@ -28,8 +30,8 @@ app.use(express.static(path.join(__dirname, '../public')));
 const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS;
 const BLOCKCHAIN_RPC_URL = process.env.BLOCKCHAIN_RPC_URL;
 
-// Load contract ABI from Signer Bank
-const contractABI = require('../../backend/src/blockchain/KYCRegistry.abi.json');
+// Load contract ABI (copied from Signer Bank at build time)
+const contractABI = require('../abi/KYCRegistry.abi.json');
 
 let provider;
 let contract;

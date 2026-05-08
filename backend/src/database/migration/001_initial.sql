@@ -14,13 +14,12 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- Core KYC records table
 CREATE TABLE IF NOT EXISTS kyc_records (
-    id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id             UUID        NOT NULL REFERENCES users(id),
+    id                  UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id             UUID         NOT NULL REFERENCES users(id),
     status              VARCHAR(30)  NOT NULL DEFAULT 'PENDING',
-                        -- PENDING | PROCESSING | APPROVED_PENDING_WALLET | APPROVED | REJECTED | FLAGGED
     document_path       TEXT,
     document_type       VARCHAR(50),
-                        -- PASSPORT | NATIONAL_ID | DRIVERS_LICENCE
+    file_mime_type      VARCHAR(100),
     ipfs_cid            TEXT,
     blockchain_tx_hash  TEXT,
     wallet_address      VARCHAR(42),
@@ -28,13 +27,14 @@ CREATE TABLE IF NOT EXISTS kyc_records (
     rejection_reason    VARCHAR(50),
     ocr_data            JSONB,
     deepfake_result     JSONB,
+    encryption_key      TEXT,
     token_expires_at    TIMESTAMPTZ,
     created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
 -- Indexes for fast lookups
-CREATE INDEX IF NOT EXISTS idx_users_status      ON users (status);
+CREATE INDEX IF NOT EXISTS idx_users_status  ON users (status);
 CREATE INDEX IF NOT EXISTS idx_kyc_user_id   ON kyc_records (user_id);
 CREATE INDEX IF NOT EXISTS idx_kyc_status    ON kyc_records (status);
 CREATE INDEX IF NOT EXISTS idx_kyc_wallet    ON kyc_records (wallet_address);
@@ -57,9 +57,9 @@ CREATE TRIGGER trg_kyc_updated_at
 CREATE TABLE IF NOT EXISTS kyc_audit_log (
     id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     kyc_id      UUID        NOT NULL REFERENCES kyc_records(id),
-    from_status VARCHAR(20),
-    to_status   VARCHAR(20) NOT NULL,
-    actor       VARCHAR(100),   -- 'system', 'ai-service', 'admin'
+    from_status VARCHAR(30),
+    to_status   VARCHAR(30) NOT NULL,
+    actor       VARCHAR(100),
     metadata    JSONB,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

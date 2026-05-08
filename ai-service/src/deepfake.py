@@ -18,14 +18,14 @@ try:
     import cv2
     import numpy as np
     CV2_AVAILABLE = True
-except ImportError:
+except Exception:
     CV2_AVAILABLE = False
     logger.warning("OpenCV not available — deepfake detection is fully mocked")
 
 try:
     from deepface import DeepFace
     DEEPFACE_AVAILABLE = True
-except ImportError:
+except Exception:
     DEEPFACE_AVAILABLE = False
     logger.warning("DeepFace not available — face detection is mocked")
 

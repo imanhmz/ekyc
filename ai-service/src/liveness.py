@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 try:
     import cv2
     CV2_AVAILABLE = True
-except ImportError:
+except Exception:
     CV2_AVAILABLE = False
     logger.warning("OpenCV not available — liveness detection disabled")
 
