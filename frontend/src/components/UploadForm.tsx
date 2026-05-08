@@ -1,9 +1,17 @@
-import React, { useState, useCallback, DragEvent } from 'react';
+import React, { useState, useCallback, useEffect, DragEvent } from 'react';
 import { submitKyc, getStatus, type StatusResponse } from '../api';
 import { StatusBadge } from './StatusBadge';
 import { WalletLinkForm } from './WalletLinkForm';
 import { MyDocumentDownload } from './MyDocumentDownload';
 import { LivenessCapture } from './LivenessCapture';
+
+const TERMINAL_STATUSES = new Set([
+    'APPROVED',
+    'APPROVED_PENDING_WALLET',
+    'REJECTED',
+    'FLAGGED',
+]);
+const POLL_INTERVAL_MS = 5000;
 
 export function UploadForm() {
     const [userId, setUserId] = useState<string>(() => crypto.randomUUID());
@@ -72,6 +80,27 @@ export function UploadForm() {
             setPolling(false);
         }
     };
+
+    // Auto-poll status every 5 seconds while a submission is in flight.
+    // Stops once the record reaches a terminal status (APPROVED,
+    // APPROVED_PENDING_WALLET, REJECTED, FLAGGED) or the user navigates away.
+    useEffect(() => {
+        if (!kycId) return;
+        if (status?.status && TERMINAL_STATUSES.has(status.status)) return;
+
+        const tick = async () => {
+            try {
+                const res = await getStatus(kycId);
+                setStatus(res);
+            } catch {
+                // Silent: a transient backend hiccup should not surface as a
+                // user-visible error; the next tick or manual refresh will retry.
+            }
+        };
+
+        const id = setInterval(tick, POLL_INTERVAL_MS);
+        return () => clearInterval(id);
+    }, [kycId, status?.status]);
 
     return (
         <form className="upload-form" onSubmit={handleSubmit}>

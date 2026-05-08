@@ -3,8 +3,8 @@ import {
     BadRequestException,
     NotFoundException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { KycRecord, KycStatus } from '../database/kyc-record.entity';
 import { KycAuditLog } from '../database/kyc-audit-log.entity';
 import { User } from '../database/user.entity';
@@ -28,6 +28,8 @@ export class KycService {
         private readonly auditRepo: Repository<KycAuditLog>,
         @InjectRepository(User)
         private readonly userRepo: Repository<User>,
+        @InjectDataSource()
+        private readonly dataSource: DataSource,
         private readonly queueService: QueueService,
         private readonly blockchainService: BlockchainService,
         private readonly zkpService: ZkpService,
@@ -39,6 +41,25 @@ export class KycService {
 
         // This wires up the handler for the AI result
         this.queueService.setResultHandler(this.processResult.bind(this));
+    }
+
+    /**
+     * Run a kyc_records write inside a transaction with audit context set so
+     * the trg_kyc_audit trigger records the actor and metadata.
+     */
+    private async withAuditContext<T>(
+        actor: string,
+        metadata: Record<string, any> | null,
+        fn: (manager: EntityManager) => Promise<T>,
+    ): Promise<T> {
+        return this.dataSource.transaction(async (manager) => {
+            await manager.query(`SELECT set_config('app.actor', $1, true)`, [actor]);
+            await manager.query(
+                `SELECT set_config('app.audit_meta', $1, true)`,
+                [metadata ? JSON.stringify(metadata) : ''],
+            );
+            return fn(manager);
+        });
     }
 
     async submit(userId: string, file: Express.Multer.File, walletAddress?: string, livenessVideo?: Express.Multer.File): Promise<{ kyc_id: string; status: string; message: string }> {
@@ -59,13 +80,17 @@ export class KycService {
         }
 
         const ext = file.originalname.split('.').pop();
-        const record = this.kycRepo.create({
-            userId,
-            status: 'PENDING',
-            walletAddress,
-            fileMimeType: file.mimetype,
+
+        // Initial INSERT — trigger logs PENDING with actor 'system'
+        const record = await this.withAuditContext('system', null, async (manager) => {
+            const r = manager.create(KycRecord, {
+                userId,
+                status: 'PENDING' as KycStatus,
+                walletAddress,
+                fileMimeType: file.mimetype,
+            });
+            return manager.save(KycRecord, r);
         });
-        await this.kycRepo.save(record);
 
         const filename = `${record.id}.${ext}`;
         const filePath = path.join(this.uploadsPath, filename);
@@ -81,8 +106,6 @@ export class KycService {
             fs.writeFileSync(livenessVideoPath, livenessVideo.buffer);
         }
 
-        await this.logAudit(record.id, null, 'PENDING', 'system');
-
         await this.queueService.publishKycJob({
             kyc_id: record.id,
             user_id: userId,
@@ -92,9 +115,15 @@ export class KycService {
             liveness_video_path: livenessVideoPath ? path.resolve(livenessVideoPath) : undefined,
         });
 
+        // Job is now in the AI processing queue — transition state machine.
+        // Trigger logs PENDING → PROCESSING.
+        await this.withAuditContext('system', { queued: true }, (manager) =>
+            manager.update(KycRecord, record.id, { status: 'PROCESSING' as KycStatus }),
+        );
+
         return {
             kyc_id: record.id,
-            status: 'PENDING',
+            status: 'PROCESSING',
             message: 'Verification submitted. Poll /kyc/status/{kyc_id} for updates.',
         };
     }
@@ -129,8 +158,10 @@ export class KycService {
     async flagAddress(address: string): Promise<any> {
         try {
             const txHash = await this.blockchainService.flagIdentity(address, 'ADMIN_FLAG');
-            // Mark related DB record as FLAGGED
-            await this.kycRepo.update({ walletAddress: address }, { status: 'FLAGGED' });
+            // Mark related DB record as FLAGGED — trigger logs the transition.
+            await this.withAuditContext('admin', { tx_hash: txHash, reason: 'ADMIN_FLAG' }, (manager) =>
+                manager.update(KycRecord, { walletAddress: address }, { status: 'FLAGGED' as KycStatus }),
+            );
             return { address, flagged: true, tx_hash: txHash };
         } catch (e) {
             throw new BadRequestException(`Flag failed: ${e.message}`);
@@ -141,8 +172,6 @@ export class KycService {
     async processResult(result: AiResultPayload): Promise<void> {
         const record = await this.kycRepo.findOne({ where: { id: result.kyc_id } });
         if (!record) return;
-
-        const prevStatus = record.status;
 
          if (result.result === 'APPROVED') {
             // Compute token expiry
@@ -176,21 +205,20 @@ export class KycService {
 
             // Check if wallet address exists - if not, set APPROVED_PENDING_WALLET status
             if (!record.walletAddress) {
-                // KYC is approved but needs wallet linking
-                await this.kycRepo.update(record.id, {
-                    status: 'APPROVED_PENDING_WALLET',
+                // KYC is approved but needs wallet linking — trigger logs transition.
+                await this.withAuditContext('ai-service', {
+                    trust_score: trustScore,
+                    ipfs_cid: ipfsCid,
+                    message: 'Awaiting wallet linkage',
+                }, (manager) => manager.update(KycRecord, record.id, {
+                    status: 'APPROVED_PENDING_WALLET' as KycStatus,
                     trustScore,
                     ipfsCid,
                     encryptionKey,
                     tokenExpiresAt: expiresAt,
                     ocrData: result.ocr_data,
                     deepfakeResult: result.deepfake_result,
-                });
-                await this.logAudit(record.id, prevStatus, 'APPROVED_PENDING_WALLET', 'ai-service', {
-                    trust_score: trustScore,
-                    ipfs_cid: ipfsCid,
-                    message: 'Awaiting wallet linkage'
-                });
+                }));
 
                 // Clean up original file and liveness video after IPFS upload
                 if (record.documentPath) {
@@ -217,8 +245,13 @@ export class KycService {
                 console.warn('Blockchain registration failed, continuing without tx_hash:', e.message);
             }
 
-            await this.kycRepo.update(record.id, {
-                status: 'APPROVED',
+            // Trigger logs PROCESSING → APPROVED.
+            await this.withAuditContext('ai-service', {
+                trust_score: trustScore,
+                ipfs_cid: ipfsCid,
+                blockchain_tx_hash: txHash,
+            }, (manager) => manager.update(KycRecord, record.id, {
+                status: 'APPROVED' as KycStatus,
                 trustScore,
                 ipfsCid,
                 encryptionKey,
@@ -226,8 +259,7 @@ export class KycService {
                 tokenExpiresAt: expiresAt,
                 ocrData: result.ocr_data,
                 deepfakeResult: result.deepfake_result,
-            });
-            await this.logAudit(record.id, prevStatus, 'APPROVED', 'ai-service', { trust_score: trustScore, ipfs_cid: ipfsCid });
+            }));
 
             // Clean up file and liveness video after IPFS upload
             if (record.documentPath) {
@@ -235,13 +267,16 @@ export class KycService {
                 this.deleteLivenessVideo(record.id, record.documentPath);
             }
         } else {
-            await this.kycRepo.update(record.id, {
-                status: 'REJECTED',
+            // Trigger logs PROCESSING → REJECTED.
+            await this.withAuditContext('ai-service', {
+                reason: result.rejection_reason,
+                trust_score: result.trust_score,
+            }, (manager) => manager.update(KycRecord, record.id, {
+                status: 'REJECTED' as KycStatus,
                 trustScore: result.trust_score,
                 rejectionReason: result.rejection_reason,
                 deepfakeResult: result.deepfake_result,
-            });
-            await this.logAudit(record.id, prevStatus, 'REJECTED', 'ai-service', { reason: result.rejection_reason });
+            }));
 
             if (record.documentPath) {
                 try { fs.unlinkSync(record.documentPath); } catch { }
@@ -276,11 +311,9 @@ export class KycService {
             });
         }
 
-        const prevStatus = record.status;
-
-        // Update wallet address
+        // Wallet linkage does not change status — log via the manual helper.
         await this.kycRepo.update(record.id, { walletAddress });
-        await this.logAudit(record.id, prevStatus, prevStatus, 'user', {
+        await this.logAudit(record.id, record.status, record.status, 'user', {
             action: 'wallet_linked',
             wallet_address: walletAddress,
         });
@@ -304,15 +337,14 @@ export class KycService {
                 console.warn('Blockchain registration failed after wallet link:', e.message);
             }
 
-            // Update status to APPROVED
-            await this.kycRepo.update(record.id, {
-                status: 'APPROVED',
-                blockchainTxHash: txHash,
-            });
-            await this.logAudit(record.id, 'APPROVED_PENDING_WALLET', 'APPROVED', 'system', {
+            // Trigger logs APPROVED_PENDING_WALLET → APPROVED.
+            await this.withAuditContext('system', {
                 blockchain_tx_hash: txHash,
                 message: 'Wallet linked and blockchain registered',
-            });
+            }, (manager) => manager.update(KycRecord, record.id, {
+                status: 'APPROVED' as KycStatus,
+                blockchainTxHash: txHash,
+            }));
 
             return {
                 success: true,
@@ -454,6 +486,12 @@ export class KycService {
         }
     }
 
+    /**
+     * Log an audit row for events that do NOT change kyc_records.status —
+     * status transitions are recorded by the trg_kyc_audit database trigger.
+     * This helper is used for things like wallet linkage and document
+     * downloads, where the same status is repeated as both from/to.
+     */
     private async logAudit(kycId: string, fromStatus: string | null, toStatus: string, actor: string, metadata?: any) {
         const log = this.auditRepo.create({ kycId, fromStatus, toStatus, actor, metadata });
         await this.auditRepo.save(log);
