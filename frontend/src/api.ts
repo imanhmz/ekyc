@@ -6,6 +6,24 @@ export interface SubmitResponse {
     message: string;
 }
 
+export interface LivenessInfo {
+    passed: boolean;
+    provided: boolean;
+    yaw_range: number;
+    min_yaw: number;
+    max_yaw: number;
+    detection_rate: number;
+    method: string;
+    reason: string;
+}
+
+export interface DeepfakeResult {
+    verdict: 'REAL' | 'FAKE' | 'NO_FACE';
+    confidence: number;
+    artifacts_detected: boolean;
+    liveness?: LivenessInfo;
+}
+
 export interface StatusResponse {
     kyc_id: string;
     status: 'PENDING' | 'PROCESSING' | 'APPROVED_PENDING_WALLET' | 'APPROVED' | 'REJECTED' | 'FLAGGED';
@@ -16,6 +34,7 @@ export interface StatusResponse {
     token_expires_at?: string;
     created_at?: string;
     rejection_reason?: string;
+    deepfake_result?: DeepfakeResult | null;
 }
 
 export interface LinkWalletResponse {
@@ -27,12 +46,15 @@ export interface LinkWalletResponse {
     status: string;
 }
 
-export async function submitKyc(userId: string, file: File, walletAddress?: string): Promise<SubmitResponse> {
+export async function submitKyc(userId: string, file: File, walletAddress?: string, livenessVideo?: Blob | null): Promise<SubmitResponse> {
     const formData = new FormData();
     formData.append('user_id', userId);
     formData.append('document', file);
     if (walletAddress) {
         formData.append('wallet_address', walletAddress);
+    }
+    if (livenessVideo) {
+        formData.append('liveness_video', livenessVideo, 'liveness.webm');
     }
 
     const res = await fetch(`${API_BASE}/kyc/submit`, {

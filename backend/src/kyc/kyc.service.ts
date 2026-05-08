@@ -41,48 +41,55 @@ export class KycService {
         this.queueService.setResultHandler(this.processResult.bind(this));
     }
 
-    async submit(userId: string, file: Express.Multer.File, walletAddress?: string): Promise<{ kyc_id: string; status: string; message: string }> {
+    async submit(userId: string, file: Express.Multer.File, walletAddress?: string, livenessVideo?: Express.Multer.File): Promise<{ kyc_id: string; status: string; message: string }> {
         const allowedMimes = ['image/jpeg', 'image/png', 'application/pdf'];
+        if (!file) throw new BadRequestException({ error: 'MISSING_DOCUMENT', message: 'Document file is required.' });
         if (!allowedMimes.includes(file.mimetype)) {
             throw new BadRequestException({ error: 'INVALID_FILE_TYPE', message: 'Only JPEG, PNG, and PDF files are accepted.' });
         }
 
-        // Validate wallet address format if provided
         if (walletAddress && !/^0x[a-fA-F0-9]{40}$/.test(walletAddress)) {
             throw new BadRequestException({ error: 'INVALID_WALLET_ADDRESS', message: 'Invalid Ethereum address format.' });
         }
 
-        // Auto-create a mock user if doesn't exist to satisfy foreign key constraints
         let user = await this.userRepo.findOne({ where: { id: userId } });
         if (!user) {
             user = this.userRepo.create({ id: userId, firstName: 'Demo', lastName: 'User' });
             await this.userRepo.save(user);
         }
 
-        // Save to shared volume
         const ext = file.originalname.split('.').pop();
         const record = this.kycRepo.create({
             userId,
             status: 'PENDING',
             walletAddress,
-            fileMimeType: file.mimetype  // Store original MIME type
+            fileMimeType: file.mimetype,
         });
         await this.kycRepo.save(record);
 
         const filename = `${record.id}.${ext}`;
         const filePath = path.join(this.uploadsPath, filename);
         fs.writeFileSync(filePath, file.buffer);
-
         await this.kycRepo.update(record.id, { documentPath: filePath });
+
+        // Save liveness video if provided
+        let livenessVideoPath: string | undefined;
+        if (livenessVideo) {
+            const videoExt = livenessVideo.originalname.split('.').pop() || 'webm';
+            const videoFilename = `${record.id}_liveness.${videoExt}`;
+            livenessVideoPath = path.join(this.uploadsPath, videoFilename);
+            fs.writeFileSync(livenessVideoPath, livenessVideo.buffer);
+        }
+
         await this.logAudit(record.id, null, 'PENDING', 'system');
 
-        // Publish to queue (non-blocking)
         await this.queueService.publishKycJob({
             kyc_id: record.id,
             user_id: userId,
             file_path: path.resolve(filePath),
             file_type: file.mimetype,
             submitted_at: new Date().toISOString(),
+            liveness_video_path: livenessVideoPath ? path.resolve(livenessVideoPath) : undefined,
         });
 
         return {
@@ -106,6 +113,7 @@ export class KycService {
             token_expires_at: record.tokenExpiresAt,
             created_at: record.createdAt,
             rejection_reason: record.rejectionReason,
+            deepfake_result: record.deepfakeResult ?? null,
         };
     }
 
@@ -184,9 +192,10 @@ export class KycService {
                     message: 'Awaiting wallet linkage'
                 });
 
-                // Clean up original file after IPFS upload
+                // Clean up original file and liveness video after IPFS upload
                 if (record.documentPath) {
                     try { fs.unlinkSync(record.documentPath); } catch { }
+                    this.deleteLivenessVideo(record.id, record.documentPath);
                 }
                 return;
             }
@@ -220,9 +229,10 @@ export class KycService {
             });
             await this.logAudit(record.id, prevStatus, 'APPROVED', 'ai-service', { trust_score: trustScore, ipfs_cid: ipfsCid });
 
-            // Clean up file after IPFS upload
+            // Clean up file and liveness video after IPFS upload
             if (record.documentPath) {
                 try { fs.unlinkSync(record.documentPath); } catch { }
+                this.deleteLivenessVideo(record.id, record.documentPath);
             }
         } else {
             await this.kycRepo.update(record.id, {
@@ -233,9 +243,9 @@ export class KycService {
             });
             await this.logAudit(record.id, prevStatus, 'REJECTED', 'ai-service', { reason: result.rejection_reason });
 
-            // Delete file for rejected verifications
             if (record.documentPath) {
                 try { fs.unlinkSync(record.documentPath); } catch { }
+                this.deleteLivenessVideo(record.id, record.documentPath);
             }
         }
     }
@@ -432,6 +442,15 @@ export class KycService {
             };
         } catch (e) {
             throw new BadRequestException(`Failed to retrieve document: ${e.message}`);
+        }
+    }
+
+    private deleteLivenessVideo(kycId: string, documentPath: string) {
+        // Liveness video is stored as {kyc_id}_liveness.{ext} in the same directory
+        const dir = path.dirname(documentPath);
+        for (const ext of ['webm', 'mp4', 'mov']) {
+            const p = path.join(dir, `${kycId}_liveness.${ext}`);
+            try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch { }
         }
     }
 

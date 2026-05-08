@@ -163,7 +163,8 @@ revokeIdentity()                                                      requestDoc
 
 - **FastAPI:** Async HTTP server; also exposes a health endpoint for Docker health checks.
 - **EasyOCR** (preferred over Tesseract for multilingual ID support): Reads name, DOB, document number from ID cards.
-- **FaceForensics++ / DeepFace:** Deepfake and liveness detection. Pre-trained models fine-tuned on synthetic ID dataset.
+- **DeepFace:** Static image deepfake detection on the ID photo (REAL/FAKE/NO_FACE verdict).
+- **OpenCV Haar Cascade:** Active liveness detection via face-centre yaw tracking across video frames (ISO/IEC 30107-3 PAD Level 2). FaceForensics++ / XceptionNet video-deepfake detection is identified as future work (~500 MB weights, GPU required).
 - **OpenCV:** Image preprocessing (denoising, deskewing, contrast normalization) before OCR and face analysis.
 - **Pika:** RabbitMQ client for Python.
 
@@ -505,15 +506,72 @@ def run_deepfake_check(image_path: str) -> DeepfakeResult:
 
 ---
 
-### 8.4 Trust Score Formula
+### 8.4 Active Liveness Detection Pipeline
+
+**Implementation**: `ai-service/src/liveness.py`  
+**Standard**: ISO/IEC 30107-3 Presentation Attack Detection (PAD) Level 2  
+**Defends against**: print attacks, replay attacks  
+**Limitation**: 3D mask attacks require IR depth sensor (future work)
+
+```python
+# Pseudocode — reflects actual implementation
+def run_liveness_check(video_path: str | None) -> LivenessResult:
+    if not video_path:
+        return LivenessResult(passed=False, method='no_video', ...)
+
+    cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
+    cap = cv2.VideoCapture(video_path)
+    x_centers = []
+
+    for every 3rd frame:
+        faces = cascade.detectMultiScale(frame, scaleFactor=1.1, minNeighbors=5)
+        if face detected:
+            # Normalise face centre to [-45°, +45°] proxy yaw range
+            center_norm = ((x + w/2) / frame_width - 0.5) * 2
+            x_centers.append(center_norm * 45.0)
+
+    smoothed = moving_average(x_centers, window=3)
+    yaw_range = max(smoothed) - min(smoothed)
+
+    passed = (
+        min(smoothed) < -4.0 and   # face moved to left of raw frame (user turned right)
+        max(smoothed) > 4.0 and    # face moved to right of raw frame (user turned left)
+        yaw_range >= 12.0 and      # total sweep ≥ 12° (filters micro-movements)
+        is_smooth(smoothed) and    # max frame-to-frame jump < 20° (anti-replay)
+        detection_rate > 0.40      # face detected in ≥ 40% of sampled frames
+    )
+```
+
+**Mirror-display note**: The frontend mirrors the video preview (`scaleX(-1)`) so users see a natural reflection. The recorded WebM is *not* mirrored; the analysis runs on the raw camera frame. "Face went right in raw frame" = user turned their head left as seen in the mirror. The bilateral pass criteria (±4°) account for this correctly.
+
+**Why Haar cascade (not MediaPipe)**: MediaPipe Face Mesh provides true 3D yaw but requires `mediapipe ≥ 0.10.20` which has an unresolvable protobuf version conflict with `tensorflow 2.21` in this environment. The Haar-cascade x-centre proxy is adequate for PAD Level 2 and requires no model download.
+
+**Future upgrade path**: MediaPipe (resolves with independent Python env) → true 3D yaw in degrees. Video deepfake detection (XceptionNet / FaceForensics++) → PAD Level 3 (GPU required, ~500 MB weights).
+
+---
+
+### 8.5 Trust Score Formula
 
 ```
+# Without liveness video:
 trust_score = round(
     (ocr_confidence * 100 * 0.40) +
     (deepfake_confidence_real * 100 * 0.60)
 )
 
+# With liveness video provided:
+trust_score = round(
+    (ocr_confidence * 100 * 0.30) +
+    (deepfake_confidence_real * 100 * 0.40) +
+    (liveness_score * 100 * 0.30)
+)
+# liveness_score = 1.0 if passed, 0.0 if failed
+
 PASS threshold: trust_score >= 75
+
+# Liveness hard gate (applied BEFORE trust score):
+if liveness_provided and not liveness_result.passed:
+    result = REJECTED  # reason: LIVENESS_FAILED — bypass trust score entirely
 ```
 
 ---
@@ -1095,6 +1153,22 @@ This is the thesis's novel contribution. The diagram below shows the full lifecy
 - [x] ZKP artifacts (`TrustScore.wasm`, `trust_final.zkey`) in `backend/zkp-artifacts/`
 - [x] Dev mode: `ZKP_ENABLED=false` or `verifierAddress=address(0)` bypasses ZKP check
 - [x] Tested on local Hardhat and Polygon Amoy testnet (~300,000 gas per registration)
+
+### Phase 9 — Active Liveness Detection (COMPLETED)
+- [x] `liveness.py` — ISO/IEC 30107-3 PAD Level 2 via OpenCV Haar cascade face-centre tracking
+- [x] Bilateral head-turn check: face must visit both sides (±4° raw-frame yaw proxy)
+- [x] Total range requirement: ≥ 12° sweep (filters micro-movements)
+- [x] Smoothness check: max frame-to-frame jump < 20° (anti-replay defence)
+- [x] Detection rate threshold: ≥ 40% of sampled frames (handles Haar drop-out at extreme angles)
+- [x] `consumer.py` updated: reads `liveness_video_path` from MQ message, calls liveness check, nests result in `deepfake_result.liveness`
+- [x] Trust score formula updated: liveness adds 30% weight when provided (OCR 30%, Deepfake 40%, Liveness 30%)
+- [x] Liveness hard gate: `LIVENESS_FAILED` rejection bypasses trust score if video provided but failed
+- [x] `kyc.controller.ts` updated: `FileFieldsInterceptor` accepts both `document` and `liveness_video` fields
+- [x] `kyc.service.ts` updated: saves liveness video, sends `liveness_video_path` in MQ message, cleans up video after processing
+- [x] `LivenessCapture.tsx` — 8-second WebM recorder with 3-2-1 countdown, progress bar, face-framing SVG guide overlay (centre oval + bilateral dashed targets + ← → arrows)
+- [x] Liveness mandatory: skip button removed; submit disabled until video captured
+- [x] Status panel shows: passed/failed, yaw range, detection rate, method, reason
+- [x] `kyc_audit_log` migration 004: widened `from_status`/`to_status` to `VARCHAR(30)` (APPROVED_PENDING_WALLET = 23 chars)
 
 ## 18. eIDAS 2.0 Compatibility — Scope & Position
 

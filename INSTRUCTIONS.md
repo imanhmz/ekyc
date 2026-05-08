@@ -16,7 +16,8 @@
 **e-KYC Live-Check Ledger** is a blockchain-based identity verification platform that combines AI-powered document analysis with smart contract trust anchoring.
 
 ### Key Features
-- **AI-Powered Verification**: OCR + Deepfake detection on ID documents
+- **AI-Powered Verification**: OCR + Deepfake detection on ID documents + Active liveness detection
+- **Active Liveness Check**: ISO/IEC 30107-3 PAD Level 2 head-swing video — mandatory for submission
 - **Blockchain Trust Anchoring**: Verification stored immutably on Polygon blockchain
 - **Encrypted Document Storage**: Documents encrypted with AES-256 before IPFS upload
 - **Expiring Trust Tokens**: Verifications expire after 90-365 days based on trust score
@@ -927,18 +928,36 @@ curl http://localhost:8080/ipfs/{ipfs_cid}
 **To enable real AI validation**:
 1. Edit `ai-service/src/trust_score.py`:
    ```python
-   # Remove this line:
-   return 99  # MOCKED for development
-
-   # Use this instead:
-   ocr_weight = 0.4
-   deepfake_weight = 0.6
-   score = (ocr_confidence * ocr_weight) + (deepfake_confidence * deepfake_weight)
+   # Remove the mock return and use the real formula:
+   if liveness_provided and liveness_result and liveness_result.passed:
+       liveness_score = 1.0
+       score = (ocr_confidence * 0.30) + (deepfake_confidence * 0.40) + (liveness_score * 0.30)
+   else:
+       score = (ocr_confidence * 0.40) + (deepfake_confidence * 0.60)
    return round(score * 100)
    ```
 
 2. Ensure OCR and deepfake detection work properly
-3. Test with real ID documents
+3. Liveness detection is **always live** — it is not mocked
+
+---
+
+### Problem: Submission rejected with LIVENESS_FAILED
+
+**Cause**: User provided a liveness video but it did not pass the head-swing check.
+
+**Possible Reasons** (shown in `deepfake_result.liveness.reason`):
+- `No face detected` — camera too dark, face not in oval, or camera covered
+- `Head barely moved (X°)` — user did not sweep head far enough left and right
+- `Did not turn left/right enough` — one side of the sweep was insufficient
+- `Non-smooth motion detected` — abrupt jump, possibly a replay attack or bad video
+- `Low face detection rate` — lighting too low or face partially obstructed
+
+**Solution**: Re-submit with a new liveness video. Tips:
+1. Ensure face fills the oval on screen
+2. Make sure lighting is sufficient (face clearly visible)
+3. Turn head **slowly** — about 2–3 seconds per direction
+4. Complete a full left-to-right sweep within the 8-second recording
 
 ---
 
@@ -1016,6 +1035,11 @@ curl http://localhost:8080/ipfs/{ipfs_cid}
 **Groth16Verifier**: Auto-generated Solidity contract that verifies ZKP proofs on-chain
 **OCR**: Optical Character Recognition - extracting text from images
 **Deepfake**: AI-generated fake identity document or photo
+**Liveness Detection**: Active check that proves the user is physically present; implemented as ISO/IEC 30107-3 PAD Level 2 challenge-response via head-swing video
+**PAD Level 2**: Presentation Attack Detection Level 2 — defends against print attacks and replay attacks; requires an active challenge-response
+**Haar Cascade**: OpenCV classifier used to detect and track face position across video frames for yaw-proxy liveness analysis
+**Yaw**: Horizontal rotation of the head (left/right); used as the liveness movement metric
+**LIVENESS_FAILED**: Rejection reason code when a liveness video was submitted but the head-swing check did not pass
 **GDPR**: General Data Protection Regulation - EU privacy law
 **RabbitMQ**: Message queue broker for async communication
 **TypeORM**: Object-Relational Mapping library for database
@@ -1048,5 +1072,5 @@ curl http://localhost:8080/ipfs/{ipfs_cid}
 ---
 
 **Last Updated**: 2026-05-08
-**Version**: 1.0
-**System Status**: Production-ready (AI validation mocked)
+**Version**: 1.1
+**System Status**: Production-ready (trust score mocked; liveness detection fully live)

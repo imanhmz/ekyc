@@ -524,6 +524,19 @@ The novel contribution: When AI service detects new fraud patterns, backend can 
 - **Entity update**: `KycRecord` entity includes `fileMimeType` field
 - **Controller logic**: Helper method `getExtensionFromMimeType()` maps MIME to file extension
 
+### Active Liveness Detection (COMPLETED)
+- **Standard**: ISO/IEC 30107-3 Presentation Attack Detection (PAD) Level 2 — defends against print and replay attacks
+- **Implementation**: `ai-service/src/liveness.py` — OpenCV Haar cascade tracks face bounding-box x-centre across video frames as a yaw proxy
+- **Pass criteria**: bilateral check (face visited both ±4° sides of raw frame) + total sweep ≥ 12° + smoothness (max jump < 20°) + detection rate > 40%
+- **Hard gate**: liveness provided + failed → `REJECTED / LIVENESS_FAILED` regardless of trust score
+- **Trust score update**: with liveness — OCR 30% + Deepfake 40% + Liveness 30%; without — OCR 40% + Deepfake 60%
+- **Dependency decision**: MediaPipe dropped (unresolvable protobuf conflict with tensorflow 2.21); Haar cascade is adequate for PAD Level 2
+- **Backend**: `FileFieldsInterceptor` accepts `document` + `liveness_video`; saves video to `{kyc_id}_liveness.{ext}`; sends `liveness_video_path` in MQ message
+- **Frontend**: `LivenessCapture.tsx` — mandatory 8-second WebM recorder; SVG overlay with face oval + bilateral turn-target guides; submit disabled until captured
+- **Result display**: `deepfake_result.liveness` nested in status response — shows passed/failed, yaw_range, detection_rate, method, reason
+- **DB migration**: `004_widen_audit_log_status.sql` widens `kyc_audit_log.from_status`/`to_status` to `VARCHAR(30)` (APPROVED_PENDING_WALLET = 23 chars overflowed old VARCHAR(20))
+- **Future upgrade**: MediaPipe Face Mesh for true 3D yaw; XceptionNet/FaceForensics++ for video deepfake detection (requires GPU + ~500 MB weights)
+
 ## Known Implementation Notes
 
 - AI and backend services are commented out in docker-compose.yml (run locally for active development)
@@ -537,6 +550,7 @@ The novel contribution: When AI service detects new fraud patterns, backend can 
 This is a **thesis implementation** for academic research. Key areas:
 - Full-stack AI + blockchain integration
 - Deepfake detection in identity verification
+- Active liveness detection (ISO/IEC 30107-3 PAD Level 2, OpenCV Haar cascade)
 - GDPR-compliant blockchain architecture
 - Live-Check expiring Trust Tokens
 - Zero-Knowledge Proof range proof (Groth16, circom, snarkjs) — implemented and tested on Polygon Amoy

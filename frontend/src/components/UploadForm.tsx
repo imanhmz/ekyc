@@ -3,11 +3,13 @@ import { submitKyc, getStatus, type StatusResponse } from '../api';
 import { StatusBadge } from './StatusBadge';
 import { WalletLinkForm } from './WalletLinkForm';
 import { MyDocumentDownload } from './MyDocumentDownload';
+import { LivenessCapture } from './LivenessCapture';
 
 export function UploadForm() {
     const [userId, setUserId] = useState<string>(() => crypto.randomUUID());
     const [walletAddress, setWalletAddress] = useState<string>('');
     const [file, setFile] = useState<File | null>(null);
+    const [livenessVideo, setLivenessVideo] = useState<Blob | null>(null);
     const [dragOver, setDragOver] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -47,7 +49,7 @@ export function UploadForm() {
 
         try {
             const walletAddr = walletAddress.trim() || undefined;
-            const res = await submitKyc(userId.trim(), file, walletAddr);
+            const res = await submitKyc(userId.trim(), file, walletAddr, livenessVideo);
             setKycId(res.kyc_id);
             setStatus({ kyc_id: res.kyc_id, status: 'PENDING' });
         } catch (e: any) {
@@ -130,9 +132,18 @@ export function UploadForm() {
                 </div>
             </div>
 
+            <LivenessCapture
+                onCapture={setLivenessVideo}
+                captured={livenessVideo !== null}
+            />
+
             {error && <div className="error-message">⚠ {error}</div>}
 
-            <button type="submit" className="btn-primary" disabled={loading}>
+            {!livenessVideo && (
+                <p className="liveness-required-hint">Complete the liveness check above to enable submission.</p>
+            )}
+
+            <button type="submit" className="btn-primary" disabled={loading || !livenessVideo}>
                 {loading ? 'Submitting…' : 'Submit for Verification'}
             </button>
 
@@ -175,6 +186,41 @@ export function UploadForm() {
                         <div className="result-row">
                             <span className="label">Rejection Reason:</span>
                             <span className="value rejection">{status.rejection_reason}</span>
+                        </div>
+                    )}
+
+                    {status?.deepfake_result?.liveness && (
+                        <div className="liveness-result-panel">
+                            <div className="result-row">
+                                <span className="label">Liveness:</span>
+                                <span className={`value ${status.deepfake_result.liveness.passed ? 'approved' : status.deepfake_result.liveness.provided ? 'rejection' : 'pending'}`}>
+                                    {!status.deepfake_result.liveness.provided
+                                        ? 'Not provided'
+                                        : status.deepfake_result.liveness.passed
+                                            ? `✅ Passed`
+                                            : `❌ Failed`}
+                                </span>
+                            </div>
+                            {status.deepfake_result.liveness.provided && (
+                                <>
+                                    <div className="result-row">
+                                        <span className="label">Head rotation:</span>
+                                        <span className="value">{status.deepfake_result.liveness.yaw_range}°</span>
+                                    </div>
+                                    <div className="result-row">
+                                        <span className="label">Detection rate:</span>
+                                        <span className="value">{Math.round(status.deepfake_result.liveness.detection_rate * 100)}%</span>
+                                    </div>
+                                    <div className="result-row">
+                                        <span className="label">Method:</span>
+                                        <span className="value mono">{status.deepfake_result.liveness.method}</span>
+                                    </div>
+                                    <div className="result-row">
+                                        <span className="label">Detail:</span>
+                                        <span className="value">{status.deepfake_result.liveness.reason}</span>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     )}
 

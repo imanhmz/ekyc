@@ -5,12 +5,13 @@ import {
     Param,
     Body,
     UploadedFile,
+    UploadedFiles,
     UseInterceptors,
     HttpCode,
     HttpStatus,
     Res,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FileFieldsInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { Response } from 'express';
 import { KycService } from './kyc.service';
@@ -25,16 +26,24 @@ export class KycController {
     @Post('submit')
     @HttpCode(HttpStatus.ACCEPTED)
     @UseInterceptors(
-        FileInterceptor('document', {
-            storage: memoryStorage(),
-            limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
-        }),
+        FileFieldsInterceptor(
+            [
+                { name: 'document', maxCount: 1 },
+                { name: 'liveness_video', maxCount: 1 },
+            ],
+            {
+                storage: memoryStorage(),
+                limits: { fileSize: 50 * 1024 * 1024 }, // 50MB (video can be larger)
+            },
+        ),
     )
     async submit(
         @Body() dto: SubmitKycDto,
-        @UploadedFile() file: Express.Multer.File,
+        @UploadedFiles() files: { document?: Express.Multer.File[]; liveness_video?: Express.Multer.File[] },
     ) {
-        return this.kycService.submit(dto.user_id, file, dto.wallet_address);
+        const document = files.document?.[0];
+        const livenessVideo = files.liveness_video?.[0];
+        return this.kycService.submit(dto.user_id, document, dto.wallet_address, livenessVideo);
     }
 
     @Get('status/:kyc_id')
