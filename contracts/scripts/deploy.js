@@ -27,11 +27,36 @@ async function main() {
 
     const registryAddress = await registry.getAddress();
     console.log(`KYCRegistry deployed to: ${registryAddress}`);
+
+    // Deploy AgeVerifier + AttributeRegistry if AgeVerifier.sol exists.
+    let attributeRegistryAddress = "";
+    let ageVerifierAddress = "";
+    const ageVerifierSolPath = path.join(__dirname, "../contracts/AgeVerifier.sol");
+    if (fs.existsSync(ageVerifierSolPath)) {
+        console.log("\nDeploying AgeVerifier (selective-disclosure attribute proofs)...");
+        const AgeVerifier = await ethers.getContractFactory("AgeVerifier");
+        const ageVerifier = await AgeVerifier.deploy();
+        await ageVerifier.waitForDeployment();
+        ageVerifierAddress = await ageVerifier.getAddress();
+        console.log(`AgeVerifier deployed to: ${ageVerifierAddress}`);
+
+        console.log("\nDeploying AttributeRegistry...");
+        const AttributeRegistry = await ethers.getContractFactory("AttributeRegistry");
+        const attrReg = await AttributeRegistry.deploy(ageVerifierAddress);
+        await attrReg.waitForDeployment();
+        attributeRegistryAddress = await attrReg.getAddress();
+        console.log(`AttributeRegistry deployed to: ${attributeRegistryAddress}`);
+    }
+
     console.log(`\nAdd to your .env file:`);
     console.log(`CONTRACT_ADDRESS=${registryAddress}`);
     if (verifierAddress !== "0x0000000000000000000000000000000000000000") {
         console.log(`VERIFIER_ADDRESS=${verifierAddress}`);
         console.log(`ZKP_ENABLED=true`);
+    }
+    if (attributeRegistryAddress) {
+        console.log(`ATTRIBUTE_REGISTRY_ADDRESS=${attributeRegistryAddress}`);
+        console.log(`AGE_VERIFIER_ADDRESS=${ageVerifierAddress}`);
     }
     console.log(`BLOCKCHAIN_RPC_URL=http://127.0.0.1:8545`);
 }
