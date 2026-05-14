@@ -43,7 +43,7 @@ export class KycController {
     ) {
         const document = files.document?.[0];
         const livenessVideo = files.liveness_video?.[0];
-        return this.kycService.submit(dto.user_id, document, dto.wallet_address, livenessVideo);
+        return this.kycService.submit(dto.user_id, document, dto.wallet_address, livenessVideo, dto.encryption_pubkey);
     }
 
     @Get('status/:kyc_id')
@@ -66,6 +66,45 @@ export class KycController {
     async linkWallet(@Body() dto: LinkWalletDto) {
         return this.kycService.linkWallet(
             dto.kyc_id,
+            dto.wallet_address,
+            dto.signature,
+            dto.message,
+            dto.encryption_pubkey,
+        );
+    }
+
+    /**
+     * SSI: return the encrypted document blob + the wrapped DEK for a kyc_id.
+     * Decryption happens entirely in the client.
+     */
+    @Get('wrapped-document/:kyc_id')
+    async getWrappedDocument(@Param('kyc_id') kycId: string) {
+        return this.kycService.getWrappedDocument(kycId);
+    }
+
+    /**
+     * SSI: wallet-bound counterpart — user signs to prove ownership, gets
+     * back ciphertext + wrapped DEK to decrypt locally.
+     */
+    @Post('wrapped-document/by-wallet')
+    @HttpCode(HttpStatus.OK)
+    async getWrappedDocumentByWallet(@Body() dto: DownloadDocumentDto) {
+        return this.kycService.getWrappedDocumentByWallet(
+            dto.wallet_address,
+            dto.signature,
+            dto.message,
+        );
+    }
+
+    /**
+     * SSI: wallet-bound — returns the ECIES-wrapped age witness for the user.
+     * Browser decrypts locally, then uses (dobYear, salt) + the on-chain
+     * commitment to generate a Groth16 age proof.
+     */
+    @Post('wrapped-age-witness/by-wallet')
+    @HttpCode(HttpStatus.OK)
+    async getWrappedAgeWitnessByWallet(@Body() dto: DownloadDocumentDto) {
+        return this.kycService.getWrappedAgeWitnessByWallet(
             dto.wallet_address,
             dto.signature,
             dto.message,

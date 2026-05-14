@@ -1,6 +1,7 @@
 # General
 Thesis/*
-!Thesis/Resources
+!Thesis/Digrams/
+!Thesis/Digrams/**
 node_modules/
 .DS_Store
 .env

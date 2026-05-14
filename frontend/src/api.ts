@@ -46,7 +46,13 @@ export interface LinkWalletResponse {
     status: string;
 }
 
-export async function submitKyc(userId: string, file: File, walletAddress?: string, livenessVideo?: Blob | null): Promise<SubmitResponse> {
+export async function submitKyc(
+    userId: string,
+    file: File,
+    walletAddress?: string,
+    livenessVideo?: Blob | null,
+    encryptionPubkey?: string,
+): Promise<SubmitResponse> {
     const formData = new FormData();
     formData.append('user_id', userId);
     formData.append('document', file);
@@ -55,6 +61,9 @@ export async function submitKyc(userId: string, file: File, walletAddress?: stri
     }
     if (livenessVideo) {
         formData.append('liveness_video', livenessVideo, 'liveness.webm');
+    }
+    if (encryptionPubkey) {
+        formData.append('encryption_pubkey', encryptionPubkey);
     }
 
     const res = await fetch(`${API_BASE}/kyc/submit`, {
@@ -70,7 +79,13 @@ export async function submitKyc(userId: string, file: File, walletAddress?: stri
     return res.json();
 }
 
-export async function linkWallet(kycId: string, walletAddress: string, signature: string, message: string): Promise<LinkWalletResponse> {
+export async function linkWallet(
+    kycId: string,
+    walletAddress: string,
+    signature: string,
+    message: string,
+    encryptionPubkey?: string,
+): Promise<LinkWalletResponse> {
     const res = await fetch(`${API_BASE}/kyc/link-wallet`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -79,6 +94,7 @@ export async function linkWallet(kycId: string, walletAddress: string, signature
             wallet_address: walletAddress,
             signature,
             message,
+            encryption_pubkey: encryptionPubkey,
         }),
     });
 
@@ -87,6 +103,54 @@ export async function linkWallet(kycId: string, walletAddress: string, signature
         throw new Error(err.message || `HTTP ${res.status}`);
     }
 
+    return res.json();
+}
+
+export interface WrappedDocumentResponse {
+    kyc_id: string;
+    ipfs_cid: string;
+    ciphertext_base64: string;
+    wrapped_encryption_key: string;
+    mimetype: string;
+}
+
+export async function fetchWrappedDocument(
+    walletAddress: string,
+    signature: string,
+    message: string,
+): Promise<WrappedDocumentResponse> {
+    const res = await fetch(`${API_BASE}/kyc/wrapped-document/by-wallet`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wallet_address: walletAddress, signature, message }),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: 'Unknown error' }));
+        throw new Error(err.message || `HTTP ${res.status}`);
+    }
+    return res.json();
+}
+
+export interface WrappedAgeWitnessResponse {
+    kyc_id: string;
+    age_commitment: string;
+    wrapped_age_witness: string;
+}
+
+export async function fetchWrappedAgeWitness(
+    walletAddress: string,
+    signature: string,
+    message: string,
+): Promise<WrappedAgeWitnessResponse> {
+    const res = await fetch(`${API_BASE}/kyc/wrapped-age-witness/by-wallet`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wallet_address: walletAddress, signature, message }),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: 'Unknown error' }));
+        throw new Error(err.message || `HTTP ${res.status}`);
+    }
     return res.json();
 }
 

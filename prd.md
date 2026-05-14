@@ -1,8 +1,8 @@
 # Product Requirements Document (PRD)
 # e-KYC Live-Check Ledger
-**Version:** 2.0  
-**Status:** Draft  
-**Author:** Senior Engineering Lead  
+**Version:** 2.0
+**Status:** Draft
+**Author:** Senior Engineering Lead
 **Target:** Thesis Implementation + Fintech Deployment Reference
 
 ---
@@ -284,6 +284,11 @@ If **APPROVED:**
 4. Records `blockchain_tx_hash` and `ipfs_cid` in PostgreSQL.
 5. Status → `APPROVED`.
 
+**additional approval-time steps:**
+6. **SSI wrap-and-shred**: if the user provided an `encryption_pubkey` at submission (derived in browser from `personal_sign("KYC-ENC-KEY-v1")`), the backend ECIES-wraps the AES document key to that pubkey via `eth-crypto`, stores the result in `wrapped_encryption_key`, and NULLs `encryption_key`. The institution loses the ability to decrypt the document unilaterally.
+7. **Attribute commitment**: backend extracts `dob_year` from `ocr_data.date_of_birth`, generates a random BN128-bounded salt, computes `commitment = Poseidon(dobYear, salt)` via `circomlibjs`, and writes it on chain via `AttributeRegistry.setAgeCommitment(walletAddress, commitment)`. The witness `(dobYear, salt)` is ECIES-wrapped to the same user pubkey and stored in `wrapped_age_witness`; the plaintext `age_witness` column is NULLed.
+8. If the user has not yet linked a wallet (status was `APPROVED_PENDING_WALLET`), the plaintext DEK and age witness are kept transiently until link-wallet time, when the pubkey arrives and the wrap-and-shred runs.
+
 If **REJECTED:**
 1. Status → `REJECTED`.
 2. Rejection reason stored in `rejection_reason` column.
@@ -386,8 +391,8 @@ Trigger a re-verification flag on the smart contract for a given address. Called
 
 ### Queue: `kyc_processing` (Backend → AI)
 
-**Exchange:** `kyc.direct`  
-**Routing Key:** `kyc.process`  
+**Exchange:** `kyc.direct`
+**Routing Key:** `kyc.process`
 **Durable:** `true`
 
 **Message Payload:**
@@ -405,8 +410,8 @@ Trigger a re-verification flag on the smart contract for a given address. Called
 
 ### Queue: `kyc_results` (AI → Backend)
 
-**Exchange:** `kyc.direct`  
-**Routing Key:** `kyc.result`  
+**Exchange:** `kyc.direct`
+**Routing Key:** `kyc.result`
 **Durable:** `true`
 
 **Message Payload (APPROVED):**
@@ -480,7 +485,7 @@ def run_ocr(image_path: str) -> OcrResult:
     return OcrResult(fields=fields, confidence=confidence)
 ```
 
-**Supported document types:** Passport, National ID Card, Driver's Licence  
+**Supported document types:** Passport, National ID Card, Driver's Licence
 **Supported languages:** English, Finnish, German, French (extensible)
 
 ---
@@ -501,16 +506,16 @@ def run_deepfake_check(image_path: str) -> DeepfakeResult:
     return DeepfakeResult(verdict=verdict, confidence=score, artifacts=artifacts)
 ```
 
-**Model:** FaceForensics++ (ResNet50 backbone), fine-tuned on synthetic ID dataset.  
+**Model:** FaceForensics++ (ResNet50 backbone), fine-tuned on synthetic ID dataset.
 **Fallback:** If no face detected (e.g., document-only ID), deepfake score defaults to `0.5` (neutral) and OCR confidence carries full weight.
 
 ---
 
 ### 8.4 Active Liveness Detection Pipeline
 
-**Implementation**: `ai-service/src/liveness.py`  
-**Standard**: ISO/IEC 30107-3 Presentation Attack Detection (PAD) Level 2  
-**Defends against**: print attacks, replay attacks  
+**Implementation**: `ai-service/src/liveness.py`
+**Standard**: ISO/IEC 30107-3 Presentation Attack Detection (PAD) Level 2
+**Defends against**: print attacks, replay attacks
 **Limitation**: 3D mask attacks require IR depth sensor (future work)
 
 ```python
@@ -692,6 +697,29 @@ contract KYCRegistry is Ownable {
 - The `address` used in the registry is the **user's wallet address** or a **keccak256 hash of their `user_id`** — not their name or national ID number.
 - The `ipfsCid` points to an encrypted document on IPFS. The decryption key is held off-chain by the institution.
 - **No personally identifiable information is ever written to the blockchain.**
+
+**updated GDPR posture:**
+- The AES document key is sealed (ECIES) to the user's wallet-derived public key at the moment of approval; the institution's plaintext copy is destroyed at the same instant. Article 17 (right to erasure) is therefore satisfied implicitly: the institution cannot read the document at all, with or without an erasure request.
+- A Poseidon commitment `C = Poseidon(dobYear, salt)` per user is written on chain via the new `AttributeRegistry` contract. It is information-theoretically hiding under the random-oracle assumption — the on-chain value reveals nothing about the underlying DOB. The user holds the witness `(dobYear, salt)` in encrypted form bound to their wallet.
+- A trade-off emerges: AMLD requires institutions to retain customer records for 5 years after the end of the business relationship. Under this design the institution cannot satisfy a regulator's record request unilaterally — it would need to ask the user to re-share. A dual-wrap escrow scheme (wrapping the DEK both to the user and to a regulator key) is the expected production resolution and is identified as future work.
+
+### 9.5 AttributeRegistry.sol
+
+Selective-disclosure proofs are anchored in a second contract:
+
+```solidity
+contract AttributeRegistry is Ownable {
+    IAgeVerifier public immutable ageVerifier;
+    mapping(address => uint256) public ageCommitment;  // Poseidon(dobYear, salt)
+
+    function setAgeCommitment(address user, uint256 commitment) external onlyOwner;
+    function clearAgeCommitment(address user) external onlyOwner;     // GDPR Article 17
+    function verifyAge(address user, uint8 minAge, uint16 currentYear,
+                       uint[2] pA, uint[2][2] pB, uint[2] pC) external view returns (bool);
+}
+```
+
+`verifyAge` is a view function, delegated to the auto-generated `AgeVerifier.sol` (a Groth16Verifier produced by snarkjs from `AgeProof.circom`). Any party — typically another bank — can call it free of gas to check whether a Groth16 proof attests that `currentYear - dobYear >= minAge` against the user's published commitment. The DOB itself is never disclosed.
 
 ---
 

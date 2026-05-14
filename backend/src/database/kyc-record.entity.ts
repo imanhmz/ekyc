@@ -61,6 +61,21 @@ export class KycRecord {
     @Column({ name: 'encryption_key', nullable: true })
     encryptionKey: string;
 
+    @Column({ name: 'wrapped_encryption_key', type: 'text', nullable: true })
+    wrappedEncryptionKey: string;
+
+    @Column({ name: 'user_encryption_pubkey', type: 'text', nullable: true })
+    userEncryptionPubkey: string;
+
+    @Column({ name: 'age_commitment', type: 'text', nullable: true })
+    ageCommitment: string;
+
+    @Column({ name: 'wrapped_age_witness', type: 'text', nullable: true })
+    wrappedAgeWitness: string;
+
+    @Column({ name: 'age_witness', type: 'text', nullable: true })
+    ageWitness: string;
+
     @Column({ name: 'token_expires_at', type: 'timestamptz', nullable: true })
     tokenExpiresAt: Date;
 

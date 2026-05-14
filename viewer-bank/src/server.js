@@ -13,6 +13,7 @@
 const express = require('express');
 const cors = require('cors');
 const { ethers } = require('ethers');
+const EthCrypto = require('eth-crypto');
 const path = require('path');
 // In Docker env vars come from docker-compose; locally fall back to project root .env
 require('dotenv').config({ path: path.join(__dirname, '../../.env') });
@@ -21,9 +22,27 @@ require('dotenv').config(); // also check local .env if present
 const app = express();
 const PORT = process.env.VIEWER_BANK_PORT || 3001;
 
-// Middleware
+// SSI: the viewer bank holds its own secp256k1 keypair so users can re-wrap
+// their DEK to this bank. For the prototype we generate ephemerally on boot;
+// a production deployment would load this from a secrets manager and rotate
+// the key on a schedule.
+const VIEWER_KEYPAIR = process.env.VIEWER_BANK_PRIVATE_KEY
+    ? (() => {
+        const priv = process.env.VIEWER_BANK_PRIVATE_KEY;
+        return { privateKey: priv, publicKey: EthCrypto.publicKeyByPrivateKey(priv) };
+    })()
+    : EthCrypto.createIdentity();
+
+console.log('🔐 Viewer Bank SSI pubkey: ' + VIEWER_KEYPAIR.publicKey.slice(0, 32) + '…');
+
+// In-memory store for documents shared with this bank (prototype only).
+// Keyed by wallet address (lower-case); each entry is the most recent share.
+const SHARED_DOCUMENTS = new Map();
+
+// Bodies carrying re-wrapped DEK + base64 ciphertext can be large; raise the
+// JSON body limit so a multi-MB document still fits.
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '20mb' }));
 app.use(express.static(path.join(__dirname, '../public')));
 
 // Blockchain connection (SAME contract as Signer Bank)
@@ -32,9 +51,13 @@ const BLOCKCHAIN_RPC_URL = process.env.BLOCKCHAIN_RPC_URL;
 
 // Load contract ABI (copied from Signer Bank at build time)
 const contractABI = require('../abi/KYCRegistry.abi.json');
+const attributeRegistryABI = require('../abi/AttributeRegistry.abi.json');
+
+const ATTRIBUTE_REGISTRY_ADDRESS = process.env.ATTRIBUTE_REGISTRY_ADDRESS;
 
 let provider;
 let contract;
+let attributeRegistry;
 let blockchainReady = false;
 
 // Initialize blockchain connection
@@ -47,6 +70,10 @@ async function initBlockchain() {
 
         provider = new ethers.JsonRpcProvider(BLOCKCHAIN_RPC_URL);
         contract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, provider);
+        if (ATTRIBUTE_REGISTRY_ADDRESS) {
+            attributeRegistry = new ethers.Contract(ATTRIBUTE_REGISTRY_ADDRESS, attributeRegistryABI, provider);
+            console.log(`   AttributeRegistry: ${ATTRIBUTE_REGISTRY_ADDRESS}`);
+        }
         blockchainReady = true;
 
         console.log('✅ Viewer Bank connected to blockchain');
@@ -64,6 +91,133 @@ app.get('/health', (req, res) => {
         bank: 'VIEWER_BANK',
         blockchain_connected: blockchainReady
     });
+});
+
+// SSI: expose the viewer bank's secp256k1 encryption pubkey so users can
+// re-wrap their DEK to this bank.
+app.get('/api/encryption-pubkey', (req, res) => {
+    res.json({
+        bank: 'VIEWER_BANK',
+        encryption_pubkey: VIEWER_KEYPAIR.publicKey,
+        algorithm: 'secp256k1-ECIES',
+    });
+});
+
+// SSI: accept a document the user has re-wrapped for this bank. The user has
+// already proven verification status on chain (the demo flow shows isVerified
+// first) so this endpoint trusts the share-time wallet signature only as a
+// freshness/consent marker — no document content leaves the user's control
+// without their explicit re-wrap step.
+app.post('/api/receive-document', async (req, res) => {
+    const { wallet_address, signature, message, ciphertext_base64, rewrapped_dek, mimetype, kyc_id } = req.body || {};
+    if (!wallet_address || !signature || !message || !ciphertext_base64 || !rewrapped_dek) {
+        return res.status(400).json({ error: 'MISSING_PARAMETERS' });
+    }
+    try {
+        const recovered = ethers.verifyMessage(message, signature);
+        if (recovered.toLowerCase() !== wallet_address.toLowerCase()) {
+            return res.status(401).json({ error: 'SIGNATURE_MISMATCH' });
+        }
+
+        // Unwrap the DEK locally with this bank's private key, then AES-GCM
+        // decrypt the ciphertext. From here on the viewer bank holds the
+        // plaintext document — the user explicitly chose to share it.
+        const parsed = EthCrypto.cipher.parse(rewrapped_dek);
+        const dekBase64 = await EthCrypto.decryptWithPrivateKey(VIEWER_KEYPAIR.privateKey, parsed);
+        const dek = Buffer.from(dekBase64, 'base64');
+        const blob = Buffer.from(ciphertext_base64, 'base64');
+
+        // Layout matches CryptoService.encryptFile: IV(16) | AuthTag(16) | Ciphertext
+        const iv = blob.subarray(0, 16);
+        const authTag = blob.subarray(16, 32);
+        const body = blob.subarray(32);
+        const decipher = require('crypto').createDecipheriv('aes-256-gcm', dek, iv);
+        decipher.setAuthTag(authTag);
+        const plaintext = Buffer.concat([decipher.update(body), decipher.final()]);
+
+        SHARED_DOCUMENTS.set(wallet_address.toLowerCase(), {
+            wallet_address,
+            kyc_id: kyc_id || null,
+            mimetype: mimetype || 'application/octet-stream',
+            plaintext_base64: plaintext.toString('base64'),
+            received_at: new Date().toISOString(),
+            size_bytes: plaintext.length,
+        });
+
+        res.json({
+            bank: 'VIEWER_BANK',
+            received: true,
+            wallet_address,
+            size_bytes: plaintext.length,
+            note: 'Viewer bank decrypted the document locally using its own private key after the user re-wrapped the DEK.',
+        });
+    } catch (e) {
+        console.error('receive-document error:', e);
+        res.status(500).json({ error: 'RECEIVE_FAILED', message: e.message });
+    }
+});
+
+// SSI: list shared documents (metadata only) and stream the latest one back.
+app.get('/api/shared-document/:wallet_address', (req, res) => {
+    const entry = SHARED_DOCUMENTS.get(req.params.wallet_address.toLowerCase());
+    if (!entry) return res.status(404).json({ error: 'NO_SHARED_DOCUMENT' });
+    const ext = ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'application/pdf': 'pdf' })[entry.mimetype] || 'bin';
+    res.setHeader('Content-Type', entry.mimetype);
+    res.setHeader('Content-Disposition', `attachment; filename="shared-${entry.wallet_address}.${ext}"`);
+    res.send(Buffer.from(entry.plaintext_base64, 'base64'));
+});
+
+app.get('/api/shared-documents', (req, res) => {
+    const items = Array.from(SHARED_DOCUMENTS.values()).map(({ plaintext_base64, ...meta }) => meta);
+    res.json({ bank: 'VIEWER_BANK', count: items.length, shared_documents: items });
+});
+
+// Selective-disclosure age proof: client supplies Groth16 proof params, we ask
+// the AttributeRegistry on chain whether the proof verifies against the user's
+// published commitment. Returns boolean — no PII ever travels here.
+app.post('/api/verify-age', async (req, res) => {
+    if (!attributeRegistry) {
+        return res.status(503).json({ error: 'ATTRIBUTE_REGISTRY_NOT_CONFIGURED' });
+    }
+    const { wallet_address, min_age, current_year, pA, pB, pC } = req.body || {};
+    if (!wallet_address || min_age == null || !current_year || !pA || !pB || !pC) {
+        return res.status(400).json({ error: 'MISSING_PARAMETERS' });
+    }
+    if (!ethers.isAddress(wallet_address)) {
+        return res.status(400).json({ error: 'INVALID_WALLET_ADDRESS' });
+    }
+    try {
+        // Convert hex/decimal strings to BigInt for the contract call.
+        const pAArg = [BigInt(pA[0]), BigInt(pA[1])];
+        const pBArg = [
+            [BigInt(pB[0][0]), BigInt(pB[0][1])],
+            [BigInt(pB[1][0]), BigInt(pB[1][1])],
+        ];
+        const pCArg = [BigInt(pC[0]), BigInt(pC[1])];
+
+        const verified = await attributeRegistry.verifyAge(
+            wallet_address,
+            min_age,
+            current_year,
+            pAArg, pBArg, pCArg,
+        );
+
+        const commitment = await attributeRegistry.ageCommitment(wallet_address);
+        res.json({
+            bank: 'VIEWER_BANK',
+            verified,
+            wallet_address,
+            min_age,
+            current_year,
+            on_chain_commitment: commitment.toString(),
+            note: verified
+                ? `User cryptographically proved age >= ${min_age} as of ${current_year} without revealing DOB.`
+                : 'Proof failed verification.',
+        });
+    } catch (e) {
+        console.error('verify-age error:', e);
+        res.status(500).json({ error: 'VERIFY_FAILED', message: e.shortMessage || e.message });
+    }
 });
 
 // Get verification status for a wallet address

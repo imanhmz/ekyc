@@ -25,6 +25,10 @@
 - **Wallet Ownership Proof**: Cryptographic signatures verify wallet ownership
 - **Zero-Knowledge Proof Verification**: Groth16 proof proves trust score ≥ 75 on-chain without revealing the exact score
 
+- **SSI Document Custody**: At approval the AES key is ECIES-wrapped to the user's wallet-derived secp256k1 public key and the plaintext is destroyed. The institution can no longer decrypt the document on its own.
+- **Wallet-Mediated Multi-Bank Share**: A second bank receives a copy only when the user re-wraps the document key for it in the browser. The signer bank cannot share unilaterally.
+- **Attribute-Level ZK Proofs**: A second Groth16 circuit (`AgeProof.circom`) plus an `AttributeRegistry` contract let the user prove `age ≥ N` to any verifier bank without disclosing date of birth. Proof generation runs in the browser via snarkjs/WebAssembly.
+
 ### Architecture
 ```
 User (Browser + MetaMask)
@@ -503,6 +507,7 @@ const expiresAt = new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000);
 
 ### Document Download Flow (User)
 
+#### LEGACY (pre-SSI) — kept for reference
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ USER: Status shows "APPROVED" with wallet_address                       │
@@ -519,7 +524,7 @@ const expiresAt = new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000);
 │ 4. Request signature from MetaMask                                      │
 └─────────────────────────────────────────────────────────────────────────┘
                                     ↓
-                    POST /api/kyc/my-document
+                    POST /api/kyc/my-document    ← DEPRECATED after SSI
                     {
                       wallet_address: "0x742d35Cc...",
                       signature: "0x5b2c8d9a...",
@@ -527,20 +532,63 @@ const expiresAt = new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000);
                     }
                                     ↓
 ┌─────────────────────────────────────────────────────────────────────────┐
-│ BACKEND: kyc.service.ts → downloadMyDocument()                          │
-│ 1. Verify signature (proves wallet ownership)                          │
-│ 2. Find KYC record by wallet_address                                   │
-│ 3. Check status === APPROVED (only approved docs can download)         │
-│ 4. Get ipfs_cid and encryption_key from DB                             │
-│ 5. Download encrypted file from IPFS:                                  │
-│    ipfsService.getFile(ipfs_cid) → Buffer                              │
-│ 6. Decrypt using stored key:                                           │
-│    cryptoService.decryptBuffer(encryptedBuffer, encryption_key)        │
-│ 7. Return decrypted document                                           │
-│ 8. Log audit: action = "document_downloaded"                           │
+│ BACKEND: returns 400 KEY_HELD_BY_USER after approval                    │
+│  the plaintext encryption_key column is NULL by design                  │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+#### SSI Document Download Flow
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ USER: Status shows "APPROVED" with wallet_address                       │
+│ Frontend displays: MyDocumentDownload component (SSI)                   │
 └─────────────────────────────────────────────────────────────────────────┘
                                     ↓
-                    Frontend downloads file as: kyc-{kyc_id}.pdf
+                User clicks "Decrypt & Download My Document"
+                                    ↓
+┌─────────────────────────────────────────────────────────────────────────┐
+│ FRONTEND: MyDocumentDownload.tsx + lib/ssiCrypto.ts                     │
+│ 1. Connect MetaMask, verify connected wallet === KYC wallet            │
+│ 2. personal_sign("Download my KYC document")  ← ownership proof        │
+│ 3. POST /api/kyc/wrapped-document/by-wallet                            │
+│ 4. Receive { ciphertext_base64, wrapped_encryption_key, mimetype }     │
+│ 5. personal_sign("KYC-ENC-KEY-v1")  ← SSI keypair derivation           │
+│ 6. SHA-256(signature) → secp256k1 private key (RAM only)                │
+│ 7. ECIES-decrypt wrapped_encryption_key locally → DEK                  │
+│ 8. WebCrypto AES-GCM decrypt ciphertext locally → plaintext            │
+│ 9. Trigger browser download. Backend never saw plaintext.              │
+└─────────────────────────────────────────────────────────────────────────┘
+
+Two signatures total: ownership + key-derivation. The user's private key never
+exists outside the browser tab.
+```
+
+#### SSI Share with Another Bank
+```
+1. User clicks "Share with Viewer Bank" in Signer Bank UI
+2. Browser GET http://viewer-bank/api/encryption-pubkey  → vPub
+3. Browser fetches wrapped-document/by-wallet from Signer Bank
+4. Browser derives uPriv → unwrap DEK locally
+5. Browser ECIES-encrypts DEK to vPub → rewrappedDEK
+6. personal_sign("I authorize sharing KYC <id> with <viewer-url> at <ts>")
+7. POST http://viewer-bank/api/receive-document
+   { ciphertext, rewrapped_dek, signature, message, mimetype, kyc_id }
+8. Viewer Bank verifies signature, ECIES-decrypts rewrapped_dek with its own
+   private key, AES-GCM decrypts ciphertext, stores in SHARED_DOCUMENTS.
+```
+
+#### SSI Prove Age Flow
+```
+1. User clicks "Prove Age with ZKP" in Signer Bank UI
+2. personal_sign("Generate age proof for <wallet>")  ← ownership proof
+3. POST /api/kyc/wrapped-age-witness/by-wallet
+4. Browser unwraps {dobYear, salt} locally (same derived keypair as DEK)
+5. snarkjs.groth16.fullProve({ dobYear, salt, commitment, minAge, currentYear })
+   using /zkp/AgeProof.wasm and /zkp/age_final.zkey  (~5-10 seconds)
+6. POST http://viewer-bank/api/verify-age
+   { wallet_address, min_age, current_year, pA, pB, pC }
+7. Viewer Bank calls AttributeRegistry.verifyAge() on chain → boolean
+8. Result returned to browser. DOB never disclosed at any step.
 ```
 
 ### Verification Query Flow (Financial Institution)

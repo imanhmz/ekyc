@@ -3,7 +3,10 @@ import { submitKyc, getStatus, type StatusResponse } from '../api';
 import { StatusBadge } from './StatusBadge';
 import { WalletLinkForm } from './WalletLinkForm';
 import { MyDocumentDownload } from './MyDocumentDownload';
+import { ShareWithBank } from './ShareWithBank';
+import { ProveAgeToBank } from './ProveAgeToBank';
 import { LivenessCapture } from './LivenessCapture';
+import { deriveEncryptionPubkey } from '../lib/ssiCrypto';
 
 const TERMINAL_STATUSES = new Set([
     'APPROVED',
@@ -57,7 +60,25 @@ export function UploadForm() {
 
         try {
             const walletAddr = walletAddress.trim() || undefined;
-            const res = await submitKyc(userId.trim(), file, walletAddr, livenessVideo);
+
+            // SSI: if the user gave a wallet at submission time we also derive
+            // their encryption pubkey now, so the backend can wrap the DEK as
+            // soon as the document is approved (no plaintext key ever persists
+            // past PROCESSING). If they're deferring the wallet, this step is
+            // skipped and the wrap happens at link-wallet time instead.
+            let encryptionPubkey: string | undefined;
+            if (walletAddr && window.ethereum) {
+                try {
+                    await window.ethereum.request({ method: 'eth_requestAccounts' });
+                    encryptionPubkey = await deriveEncryptionPubkey(walletAddr);
+                } catch (e: any) {
+                    setError('SSI pubkey derivation failed: ' + (e.message || 'unknown'));
+                    setLoading(false);
+                    return;
+                }
+            }
+
+            const res = await submitKyc(userId.trim(), file, walletAddr, livenessVideo, encryptionPubkey);
             setKycId(res.kyc_id);
             setStatus({ kyc_id: res.kyc_id, status: 'PENDING' });
         } catch (e: any) {
@@ -272,6 +293,14 @@ export function UploadForm() {
 
                     {status?.status === 'APPROVED' && status.wallet_address && (
                         <MyDocumentDownload walletAddress={status.wallet_address} />
+                    )}
+
+                    {status?.status === 'APPROVED' && status.wallet_address && (
+                        <ShareWithBank walletAddress={status.wallet_address} />
+                    )}
+
+                    {status?.status === 'APPROVED' && status.wallet_address && (
+                        <ProveAgeToBank walletAddress={status.wallet_address} />
                     )}
                 </div>
             )}

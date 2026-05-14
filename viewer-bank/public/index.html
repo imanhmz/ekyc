@@ -393,8 +393,12 @@
             </button>
 
             <button class="btn btn-secondary" id="downloadBtn" style="display: none;" onclick="downloadDocument()">
-                📄 Request Document from Signer Bank
+                📄 View Shared Document
             </button>
+            <p id="shareHint" style="display:none; margin-top:8px; font-size:0.9em; color:#555;">
+                Documents are user-controlled. Open the Signer Bank app and use "Share with Viewer Bank"
+                to send a copy here. The viewer bank can only see what the user explicitly shares.
+            </p>
 
             <div id="result"></div>
 
@@ -745,56 +749,29 @@
         }
 
         async function downloadDocument() {
-            if (typeof window.ethereum === 'undefined') {
-                alert('MetaMask not detected. Please install MetaMask to download your document.');
-                return;
-            }
-
             const walletAddress = document.getElementById('walletInput').value.trim();
-
+            if (!walletAddress) return;
             try {
-                // Request MetaMask connection
-                const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-                const connectedAddress = accounts[0];
-
-                if (connectedAddress.toLowerCase() !== walletAddress.toLowerCase()) {
-                    alert(`Connected wallet ${connectedAddress} does not match queried wallet ${walletAddress}`);
+                // SSI: the viewer bank only has documents that the user has
+                // explicitly re-wrapped and shared. There is no fallback path
+                // where this bank decrypts on the user's behalf.
+                const response = await fetch(`${API_BASE}/shared-document/${walletAddress}`);
+                if (response.status === 404) {
+                    document.getElementById('shareHint').style.display = 'block';
+                    alert('No document has been shared with the Viewer Bank yet.\n\n' +
+                        'Open the Signer Bank app, complete KYC, and use the\n' +
+                        '"Share with Viewer Bank" button to send a copy here.');
                     return;
                 }
-
-                // Create message for signing
-                const message = 'Download my KYC document via Viewer Bank';
-
-                // Request signature from MetaMask
-                const signature = await window.ethereum.request({
-                    method: 'personal_sign',
-                    params: [message, connectedAddress],
-                });
-
-                console.log('Requesting document from Signer Bank via Viewer Bank...');
-
-                // Request document from Viewer Bank (which forwards to Signer Bank)
-                const response = await fetch(`${API_BASE}/request-document`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        wallet_address: connectedAddress,
-                        signature,
-                        message,
-                    }),
-                });
-
                 if (!response.ok) {
                     const err = await response.json().catch(() => ({ message: 'Failed to download document' }));
                     throw new Error(err.message || `HTTP ${response.status}`);
                 }
 
-                // Get filename from Content-Disposition header
                 const contentDisposition = response.headers.get('Content-Disposition');
                 const filenameMatch = contentDisposition?.match(/filename="(.+)"/);
-                const filename = filenameMatch ? filenameMatch[1] : 'kyc-document.pdf';
+                const filename = filenameMatch ? filenameMatch[1] : `shared-${walletAddress}.bin`;
 
-                // Download file
                 const blob = await response.blob();
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -805,8 +782,7 @@
                 window.URL.revokeObjectURL(url);
                 document.body.removeChild(a);
 
-                alert('✅ Document downloaded successfully!\n\nNote: Viewer Bank requested this from Signer Bank on your behalf using your wallet signature.');
-
+                alert('✅ Shared document downloaded.\n\nThe Viewer Bank only sees documents that the user explicitly shared via the SSI re-wrap flow.');
             } catch (error) {
                 console.error('Download error:', error);
                 alert('Failed to download document: ' + error.message);

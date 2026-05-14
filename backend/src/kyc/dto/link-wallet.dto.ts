@@ -1,4 +1,4 @@
-import { IsUUID, IsString, Matches } from 'class-validator';
+import { IsUUID, IsString, IsOptional, Matches } from 'class-validator';
 
 export class LinkWalletDto {
     @IsUUID()
@@ -13,4 +13,10 @@ export class LinkWalletDto {
 
     @IsString()
     message: string;
+
+    // SSI: optional secp256k1 pubkey to wrap any plaintext DEK still on file.
+    @IsOptional()
+    @IsString()
+    @Matches(/^(0x)?(04)?[0-9a-fA-F]{128}$/, { message: 'Invalid secp256k1 pubkey format' })
+    encryption_pubkey?: string;
 }

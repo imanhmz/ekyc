@@ -1,0 +1,8 @@
+[
+    "function setAgeCommitment(address user, uint256 commitment) external",
+    "function clearAgeCommitment(address user) external",
+    "function ageCommitment(address user) external view returns (uint256)",
+    "function verifyAge(address user, uint8 minAge, uint16 currentYear, uint[2] pA, uint[2][2] pB, uint[2] pC) external view returns (bool)",
+    "event AgeCommitmentSet(address indexed user, uint256 commitment)",
+    "event AgeCommitmentCleared(address indexed user)"
+]

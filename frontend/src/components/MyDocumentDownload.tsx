@@ -1,4 +1,11 @@
 import React, { useState } from 'react';
+import { fetchWrappedDocument } from '../api';
+import {
+    deriveEncryptionKeypair,
+    unwrapDek,
+    aesDecrypt,
+    base64ToBytes,
+} from '../lib/ssiCrypto';
 
 interface Props {
     walletAddress: string;
@@ -10,9 +17,17 @@ declare global {
     }
 }
 
+const MIME_TO_EXT: Record<string, string> = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'application/pdf': 'pdf',
+};
+
 export function MyDocumentDownload({ walletAddress }: Props) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [step, setStep] = useState<string>('');
 
     const handleDownload = async () => {
         if (!window.ethereum) {
@@ -22,57 +37,57 @@ export function MyDocumentDownload({ walletAddress }: Props) {
 
         setLoading(true);
         setError(null);
+        setStep('');
 
         try {
-            // Request MetaMask connection
             const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-            const connectedAddress = accounts[0];
-
+            const connectedAddress: string = accounts[0];
             if (connectedAddress.toLowerCase() !== walletAddress.toLowerCase()) {
                 throw new Error(`Connected wallet ${connectedAddress} does not match KYC wallet ${walletAddress}`);
             }
 
-            // Create message for signing
-            const message = 'Download my KYC document';
-
-            // Request signature from MetaMask
-            const signature = await window.ethereum.request({
+            // 1. Prove wallet ownership for the wrapped-document endpoint.
+            setStep('Requesting ownership signature…');
+            const ownershipMessage = 'Download my KYC document';
+            const ownershipSignature = await window.ethereum.request({
                 method: 'personal_sign',
-                params: [message, connectedAddress],
+                params: [ownershipMessage, connectedAddress],
             });
 
-            // Download document from backend
-            const response = await fetch('/api/kyc/my-document', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    wallet_address: connectedAddress,
-                    signature,
-                    message,
-                }),
-            });
+            // 2. Fetch ciphertext + wrapped DEK from backend.
+            setStep('Fetching encrypted document…');
+            const payload = await fetchWrappedDocument(
+                connectedAddress,
+                ownershipSignature,
+                ownershipMessage,
+            );
 
-            if (!response.ok) {
-                const err = await response.json().catch(() => ({ message: 'Failed to download document' }));
-                throw new Error(err.message || `HTTP ${response.status}`);
-            }
+            // 3. Derive the encryption keypair from the SSI challenge signature.
+            setStep('Deriving encryption key from wallet…');
+            const { privateKey } = await deriveEncryptionKeypair(connectedAddress);
 
-            // Get filename from Content-Disposition header or use default
-            const contentDisposition = response.headers.get('Content-Disposition');
-            const filenameMatch = contentDisposition?.match(/filename="(.+)"/);
-            const filename = filenameMatch ? filenameMatch[1] : 'kyc-document.pdf';
+            // 4. Unwrap the DEK locally.
+            setStep('Unwrapping document key in browser…');
+            const dekBase64 = await unwrapDek(payload.wrapped_encryption_key, privateKey);
 
-            // Download file
-            const blob = await response.blob();
+            // 5. AES-GCM decrypt the IPFS ciphertext locally.
+            setStep('Decrypting document…');
+            const ciphertext = base64ToBytes(payload.ciphertext_base64);
+            const plaintext = await aesDecrypt(ciphertext, dekBase64);
+
+            // 6. Trigger a browser download — backend never sees plaintext.
+            const ext = MIME_TO_EXT[payload.mimetype] || 'bin';
+            const blob = new Blob([plaintext as BlobPart], { type: payload.mimetype });
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = filename;
+            a.download = `kyc-${payload.kyc_id}.${ext}`;
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
 
+            setStep('Done. Decrypted locally — backend never saw the plaintext.');
         } catch (e: any) {
             if (e.code === 4001) {
                 setError('Signature rejected by user');
@@ -86,12 +101,15 @@ export function MyDocumentDownload({ walletAddress }: Props) {
 
     return (
         <div className="my-document-panel">
-            <h3>Download Your Document</h3>
+            <h3>Download Your Document (SSI)</h3>
             <p className="download-hint">
-                Click below to download your verified KYC document. You'll need to sign a message with your wallet to prove ownership.
+                Your document is encrypted with a key only your wallet can open. You'll be asked to sign
+                twice — once to prove ownership and once to derive your decryption key. Decryption
+                happens entirely in this browser; the bank cannot decrypt it.
             </p>
 
             {error && <div className="error-message">⚠ {error}</div>}
+            {step && !error && <div className="info-message">{step}</div>}
 
             <button
                 type="button"
@@ -99,7 +117,7 @@ export function MyDocumentDownload({ walletAddress }: Props) {
                 onClick={handleDownload}
                 disabled={loading}
             >
-                {loading ? 'Downloading...' : '📄 Download My Document'}
+                {loading ? 'Working…' : '📄 Decrypt & Download My Document'}
             </button>
 
             <p className="download-note">

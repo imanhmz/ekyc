@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { linkWallet } from '../api';
+import { deriveEncryptionPubkey } from '../lib/ssiCrypto';
 
 interface Props {
     kycId: string;
@@ -45,8 +46,13 @@ export function WalletLinkForm({ kycId, onSuccess }: Props) {
                 params: [message, walletAddress],
             });
 
+            // SSI: derive the encryption pubkey too, so the backend can wrap
+            // the plaintext DEK that's still sitting in storage from
+            // APPROVED_PENDING_WALLET and shred the cleartext.
+            const encryptionPubkey = await deriveEncryptionPubkey(walletAddress);
+
             // Submit to backend
-            const result = await linkWallet(kycId, walletAddress, signature, message);
+            const result = await linkWallet(kycId, walletAddress, signature, message, encryptionPubkey);
 
             setSuccess(`Wallet linked successfully! Transaction: ${result.blockchain_tx_hash || 'pending'}`);
 

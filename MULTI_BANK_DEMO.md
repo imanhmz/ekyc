@@ -99,6 +99,25 @@ npm start
 4. Viewer Bank requests document from Signer Bank
 5. Document downloaded!
 
+### Step 3: Share document with Viewer Bank — SSI flow
+1. Stay in the **Signer Bank** UI (port 5173) where you already have your wallet connected
+2. Scroll to the "Share with Another Bank (SSI)" panel under "Decrypt & Download My Document"
+3. Enter the Viewer Bank URL (default: `http://localhost:3001`) and click "Share with Viewer Bank"
+4. MetaMask prompts you twice:
+   - Once to derive your encryption keypair (`KYC-ENC-KEY-v1`)
+   - Once to sign the share-consent message
+5. Browser fetches the Viewer Bank's public key, unwraps your DEK locally, re-wraps it for the Viewer Bank, and POSTs the ciphertext + re-wrapped key
+6. Now switch to the **Viewer Bank** UI (port 3001), enter the same wallet, and click "View Shared Document"
+7. Viewer Bank serves the plaintext it decrypted from the share
+
+### Step 4: Prove age to Viewer Bank — selective disclosure
+1. Back in the Signer Bank UI, scroll to "Prove Age to Another Bank (ZK)"
+2. Enter the recipient bank URL and minimum age (e.g. 18)
+3. Click "Prove Age with ZKP". MetaMask prompts twice (ownership + key derivation)
+4. Browser fetches the wrapped age witness, unwraps `{dobYear, salt}` locally, runs `snarkjs.groth16.fullProve` in WebAssembly (~5–10 seconds)
+5. Proof is POSTed to `http://localhost:3001/api/verify-age`; viewer bank calls `AttributeRegistry.verifyAge` on chain; returns `verified: true`
+6. The user's date of birth is never disclosed at any point
+
 ---
 
 ## What This Demonstrates
@@ -150,6 +169,34 @@ npm start
 └─────────────────────────────────────────────────────────────┘
 ```
 
+### Updated Architecture
+
+```
+            SIGNER BANK 3000                       VIEWER BANK 3001
+  ┌────────────────────────────┐              ┌──────────────────────┐
+  │ PostgreSQL / RabbitMQ /    │              │ Express + own ECIES  │
+  │ IPFS / AI / NestJS         │              │ keypair (no DB)      │
+  │ ECIES-wraps DEK at approve │              │                      │
+  └─────────────┬──────────────┘              └──────────┬───────────┘
+                │                                        │
+                │ registerIdentity(.., ZKP)              │ isVerified(wallet)
+                │ setAgeCommitment(wallet, C)            │ verifyAge(..., proof)
+                ▼                                        ▼
+       ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+       ┃   ON-CHAIN  KYCRegistry  +  AttributeRegistry    ┃
+       ┃   Verifier (TrustScore)  +  AgeVerifier          ┃
+       ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+  USER BROWSER (the new "middle layer")
+  ┌──────────────────────────────────────────────────────────────┐
+  │  MetaMask → derive secp256k1 keypair (KYC-ENC-KEY-v1)        │
+  │  Fetch wrapped DEK from Signer → unwrap locally              │
+  │  Re-wrap DEK to Viewer Bank pubkey → POST receive-document   │
+  │  snarkjs Groth16 fullProve (wasm) → POST verify-age          │
+  │  Plaintext never leaves the browser                          │
+  └──────────────────────────────────────────────────────────────┘
+```
+
 ---
 
 ## Key Points
@@ -192,13 +239,17 @@ npm start
 
 ### Signer Bank (Port 3000)
 ```
-POST   /api/kyc/submit              - Upload document for verification
+POST   /api/kyc/submit              - Upload document for verification (optional encryption_pubkey)
 GET    /api/kyc/status/:id          - Check KYC status
-POST   /api/kyc/link-wallet         - Link wallet to KYC record
+POST   /api/kyc/link-wallet         - Link wallet + (optional) encryption_pubkey to KYC record
 GET    /api/kyc/verify/:address     - Check blockchain verification
 POST   /api/kyc/flag/:address       - Flag identity for re-verification
-GET    /api/kyc/document/:id        - Download document (institution)
-POST   /api/kyc/my-document         - Download document (user)
+GET    /api/kyc/document/:id        - DEPRECATED after approval — returns 400 KEY_HELD_BY_USER
+POST   /api/kyc/my-document         - DEPRECATED after approval — returns 400 KEY_HELD_BY_USER
+
+GET    /api/kyc/wrapped-document/:id          - Returns {ciphertext, wrapped_DEK} for in-browser decrypt
+POST   /api/kyc/wrapped-document/by-wallet    - Wallet-signature-gated equivalent
+POST   /api/kyc/wrapped-age-witness/by-wallet - Returns wrapped (dobYear, salt) for ZKP age proof
 ```
 
 ### Viewer Bank (Port 3001)
@@ -207,6 +258,12 @@ GET    /api/verify/:wallet             - Check verification status
 POST   /api/request-document           - Request document from Signer Bank
 GET    /api/transactions/:wallet       - Get transaction history from blockchain
 GET    /api/recent-verifications       - See recent blockchain events
+
+GET    /api/encryption-pubkey          - Viewer Bank's secp256k1 pubkey (for re-wrap)
+POST   /api/receive-document           - Receive a re-wrapped document from a user
+GET    /api/shared-document/:wallet    - Serve the most recently shared document
+GET    /api/shared-documents           - List metadata for received shares
+POST   /api/verify-age                 - Verify a Groth16 age proof against on-chain commitment
 ```
 
 ---
