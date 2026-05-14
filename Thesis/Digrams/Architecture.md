@@ -1,5 +1,5 @@
 ```mermaid
-%% MODIFIED_CLAUDE: added AttributeRegistry contract, AgeVerifier, in-browser snarkjs proof generation, wallet-derived encryption keypair, viewer-bank ports.
+%% MODIFIED_CLAUDE: viewer-bank backend now routes blockchain reads through the main backend instead of querying the chain directly; added AttributeRegistry/AgeVerifier; in-browser snarkjs + ECIES on the frontend.
 graph TB
       subgraph "User Interface Layer"
           FE[React Frontend<br/>Port 5173<br/>- snarkjs in-browser<br/>- ECIES unwrap<br/>- WebCrypto AES decrypt]
@@ -9,7 +9,7 @@ graph TB
       subgraph "Application Layer"
           BE[NestJS Backend<br/>Port 3000<br/>- REST API<br/>- RabbitMQ Producer/Consumer<br/>- ZkpService Groth16<br/>- AttributeService Poseidon<br/>- CryptoService AES+ECIES]
           AI[Python AI Service<br/>Port 8000<br/>- FastAPI<br/>- RabbitMQ Consumer<br/>- OCR EasyOCR<br/>- DeepFace detection<br/>- Haar-cascade liveness]
-          VBE[Viewer Bank Backend<br/>Port 3001<br/>- isVerified queries<br/>- verifyAge proxy<br/>- own ECIES keypair]
+          VBE[Viewer Bank Backend<br/>Port 3001<br/>- Thin proxy to main backend<br/>- own ECIES keypair<br/>- verifyAge handoff]
       end
 
       subgraph "Message Broker"
@@ -33,7 +33,8 @@ graph TB
       end
 
       FE -->|POST /kyc/submit<br/>POST /kyc/wrapped-document/by-wallet<br/>POST /kyc/wrapped-age-witness/by-wallet| BE
-      VFE -->|POST /api/verify-age| VBE
+      VFE -->|isVerified / verifyAge UI| VBE
+      VBE -->|HTTP request on behalf of viewer<br/>GET /kyc/verify/:wallet<br/>POST /kyc/verify-age| BE
       BE -->|Save record<br/>Update status| DB
       BE -->|Publish processing job| Q1
       Q1 -->|Consume message| AI
@@ -41,12 +42,10 @@ graph TB
       Q2 -->|Consume result| BE
       BE -->|Upload encrypted doc| IPFS
       IPFS -->|Return CID| BE
-      BE -->|registerIdentity tx ZKP| KR
-      BE -->|setAgeCommitment tx| AR
+      BE -->|registerIdentity tx ZKP<br/>isVerified read| KR
+      BE -->|setAgeCommitment tx<br/>verifyAge read| AR
       KR -->|verifyProof| V1
       AR -->|verifyProof| V2
-      VBE -->|isVerified call| KR
-      VBE -->|verifyAge call| AR
 
       style FE fill:#e1f5ff
       style VFE fill:#ffe1f5
