@@ -1,5 +1,6 @@
 import React from 'react';
 import { UploadForm } from './components/UploadForm';
+import { FlagWallet } from './components/FlagWallet';
 import './index.css';
 
 function App() {
@@ -38,6 +39,12 @@ function App() {
                         <li><strong>IPFS</strong> — document anchored with a content hash</li>
                         <li><strong>Blockchain</strong> — Trust Token with expiry written to KYCRegistry smart contract</li>
                     </ol>
+                </section>
+            </main>
+
+            <main className="main" style={{ marginTop: '0' }}>
+                <section className="card" style={{ borderTop: '3px solid #e53e3e' }}>
+                    <FlagWallet />
                 </section>
             </main>
 
