@@ -1,75 +1,85 @@
 ```mermaid
-%% MODIFIED_CLAUDE: approval path now wraps DEK to user pubkey and publishes age commitment; download is split into wrapped fetch + in-browser decrypt; new ZKP attribute-proof subflow.
+ %%{init: {'theme':'base', 'themeVariables': {'fontSize':'15px'}, 'sequence': {'actorMargin':55, 'messageMargin':38, 'noteMargin':10, 'wrap':true}}}%%
 sequenceDiagram
-      participant User
-      participant Wallet as MetaMask
-      participant Frontend
-      participant Backend
-      participant DB as PostgreSQL
-      participant MQ as RabbitMQ
-      participant AI as AI Service
-      participant IPFS
-      participant KR as KYCRegistry
-      participant AR as AttributeRegistry
-      participant VB as Viewer Bank
+    autonumber
+    actor User
+    participant W as MetaMask
+    participant FE as Frontend
+    participant BE as Backend
+    participant DB as PostgreSQL
+    participant MQ as RabbitMQ
+    participant AI as AI Service
+    participant IPFS
+    participant KR as KYCRegistry
+    participant AR as AttributeRegistry
+    participant VB as Viewer Bank
 
-      User->>Wallet: personal_sign("KYC-ENC-KEY-v1")
-      Wallet-->>Frontend: signature → uPub (in browser RAM)
-      User->>Frontend: Upload passport image
-      Frontend->>Backend: POST /kyc/submit (document, wallet, uPub)
-      Backend->>DB: INSERT kyc_record (status: PENDING, uPub stored)
-      Backend->>MQ: Publish to kyc_processing
-      Backend-->>Frontend: 202 Accepted {kyc_id}
+    rect rgb(232, 244, 253)
+    Note over User,MQ: 1 — Submission
+    User->>W: personal_sign("KYC-ENC-KEY-v1")
+    W-->>FE: signature → uPub (in RAM)
+    User->>FE: Upload passport
+    FE->>BE: POST /kyc/submit (doc, wallet, uPub)
+    BE->>DB: INSERT kyc_record (PENDING, uPub)
+    BE->>MQ: publish → kyc_processing
+    BE-->>FE: 202 Accepted {kyc_id}
+    end
 
-      Note over AI,MQ: Async Processing
-      MQ->>AI: Deliver message
-      AI->>AI: Preprocess + OCR + Deepfake + Liveness
-      AI->>AI: Trust score = 30/40/30 weights
-      AI->>MQ: Publish to kyc_results
+    rect rgb(255, 247, 224)
+    Note over MQ,AI: 2 — Async AI review
+    MQ->>AI: deliver
+    AI->>AI: OCR + Deepfake + Liveness
+    AI->>AI: Trust score (30/40/30)
+    AI->>MQ: publish → kyc_results
+    MQ->>BE: APPROVED
+    end
 
-      MQ->>Backend: Deliver result (APPROVED)
-      Backend->>Backend: Generate random AES-256 DEK
-      Backend->>Backend: Encrypt document (AES-256-GCM)
-      Backend->>IPFS: Upload encrypted file
-      IPFS-->>Backend: CID
+    rect rgb(232, 245, 233)
+    Note over BE,KR: 3 — Encrypt, commit, register
+    BE->>BE: gen AES-256 DEK
+    BE->>BE: AES-GCM encrypt doc
+    BE->>IPFS: upload ciphertext
+    IPFS-->>BE: CID
+    Note right of BE: SSI wrap-and-shred
+    BE->>BE: ECIES wrap DEK → uPub
+    BE->>DB: set wrapped_DEK, NULL plaintext key
+    Note right of BE: Age commitment
+    BE->>BE: dobYear + salt → Poseidon
+    BE->>AR: setAgeCommitment(wallet, c)
+    BE->>BE: ECIES wrap (dobYear, salt) → uPub
+    BE->>DB: set wrapped_age_witness
+    Note right of BE: ZKP-gated registration
+    BE->>BE: generateProof(trustScore)
+    BE->>KR: registerIdentity(addr, CID, exp, score, π)
+    KR-->>BE: tx_hash
+    BE->>DB: status = APPROVED
+    end
 
-      Note over Backend: SSI wrap-and-shred
-      Backend->>Backend: ECIES wrap DEK to uPub
-      Backend->>DB: UPDATE wrapped_encryption_key, NULL encryption_key
+    rect rgb(252, 232, 243)
+    Note over User,IPFS: 4a — User downloads own doc (SSI)
+    User->>W: personal_sign("Download my KYC")
+    User->>FE: click "Decrypt & Download"
+    FE->>BE: POST /kyc/wrapped-document/by-wallet
+    BE->>IPFS: fetch by CID
+    BE-->>FE: {ciphertext, wrapped_DEK}
+    FE->>W: personal_sign("KYC-ENC-KEY-v1")
+    FE->>FE: derive uPriv, ECIES unwrap DEK
+    FE->>FE: WebCrypto AES-GCM decrypt
+    FE-->>User: browser download
+    end
 
-      Note over Backend: Attribute commitment
-      Backend->>Backend: Extract dobYear from OCR, gen salt
-      Backend->>Backend: commitment = Poseidon(dobYear, salt)
-      Backend->>AR: setAgeCommitment(wallet, commitment)
-      Backend->>Backend: ECIES wrap (dobYear, salt) to uPub
-      Backend->>DB: UPDATE wrapped_age_witness
-
-      Note over Backend: ZKP-gated registration
-      Backend->>Backend: ZkpService.generateProof(trustScore)
-      Backend->>KR: registerIdentity(addr, CID, expiry, score, pA, pB, pC)
-      KR-->>Backend: tx_hash
-      Backend->>DB: UPDATE status: APPROVED
-
-      Note over User,Backend: Document retrieval (SSI)
-      User->>Wallet: personal_sign("Download my KYC document")
-      User->>Frontend: Click "Decrypt & Download"
-      Frontend->>Backend: POST /kyc/wrapped-document/by-wallet
-      Backend->>IPFS: Fetch ciphertext by CID
-      Backend-->>Frontend: {ciphertext, wrapped_DEK}
-      Frontend->>Wallet: personal_sign("KYC-ENC-KEY-v1")
-      Frontend->>Frontend: Derive uPriv, ECIES unwrap DEK
-      Frontend->>Frontend: WebCrypto AES-GCM decrypt → plaintext
-      Frontend-->>User: Browser download
-
-      Note over User,VB: Attribute proof to another bank
-      User->>Frontend: Click "Prove Age with ZKP"
-      Frontend->>Backend: POST /kyc/wrapped-age-witness/by-wallet
-      Backend-->>Frontend: {age_commitment, wrapped_witness}
-      Frontend->>Frontend: Unwrap (dobYear, salt) locally
-      Frontend->>Frontend: snarkjs.groth16.fullProve in browser
-      Frontend->>VB: POST /api/verify-age {pA, pB, pC, minAge}
-      VB->>AR: verifyAge(addr, minAge, currentYear, pA, pB, pC)
-      AR-->>VB: true / false
-      VB-->>Frontend: { verified: true }
-      Frontend-->>User: "Recipient verified age >= 18"
+    rect rgb(237, 231, 246)
+    Note over User,AR: 4b — Prove age to another bank (ZKP)
+    User->>FE: click "Prove Age with ZKP"
+    FE->>BE: POST /kyc/wrapped-age-witness/by-wallet
+    BE-->>FE: {commitment, wrapped_witness}
+    FE->>FE: unwrap (dobYear, salt)
+    FE->>FE: snarkjs.groth16.fullProve
+    FE->>VB: POST /api/verify-age (π, minAge)
+    VB->>AR: verifyAge(addr, minAge, year, π)
+    AR-->>VB: true / false
+    VB-->>FE: {verified: true}
+    FE-->>User: "Recipient verified age ≥ 18"
+    end
+  
 ```
