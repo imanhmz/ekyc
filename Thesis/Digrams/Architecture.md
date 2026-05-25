@@ -1,61 +1,78 @@
 ```mermaid
-%% MODIFIED_CLAUDE: viewer-bank backend now routes blockchain reads through the main backend instead of querying the chain directly; added AttributeRegistry/AgeVerifier; in-browser snarkjs + ECIES on the frontend.
+%%{init: {'theme':'base', 'themeVariables': {'fontSize':'14px', 'fontFamily':'Arial'}, 'flowchart': {'nodeSpacing':25, 'rankSpacing':50}}}%%
 graph TB
-      subgraph "User Interface Layer"
-          FE[React Frontend<br/>Port 5173<br/>- snarkjs in-browser<br/>- ECIES unwrap<br/>- WebCrypto AES decrypt]
-          VFE[Viewer Bank Frontend<br/>Port 3001<br/>- isVerified queries<br/>- verifyAge submission]
-      end
+    subgraph UI["User Interface Layer"]
+        direction TB
+        FE["<b>React Frontend</b> :5173<br/>snarkjs • ECIES unwrap • WebCrypto AES"]
+        VFE["<b>Viewer Bank Frontend</b> :3001<br/>isVerified • verifyAge UI"]
+    end
 
-      subgraph "Application Layer"
-          BE[NestJS Backend<br/>Port 3000<br/>- REST API<br/>- RabbitMQ Producer/Consumer<br/>- ZkpService Groth16<br/>- AttributeService Poseidon<br/>- CryptoService AES+ECIES]
-          AI[Python AI Service<br/>Port 8000<br/>- FastAPI<br/>- RabbitMQ Consumer<br/>- OCR EasyOCR<br/>- DeepFace detection<br/>- Haar-cascade liveness]
-          VBE[Viewer Bank Backend<br/>Port 3001<br/>- Thin proxy to main backend<br/>- own ECIES keypair<br/>- verifyAge handoff]
-      end
+    subgraph APP["Application Layer"]
+        direction TB
+        BE["<b>NestJS Backend</b> :3000<br/>REST API • ZkpService (Groth16)<br/>AttributeService (Poseidon)<br/>CryptoService (AES + ECIES)"]
+        AI["<b>Python AI Service</b> :8000<br/>OCR • DeepFace • Liveness"]
+        VBE["<b>Viewer Bank Backend</b> :3001<br/>Thin proxy • own ECIES keypair"]
+    end
 
-      subgraph "Message Broker"
-          MQ[RabbitMQ<br/>Port 5672]
-          Q1[kyc_processing queue]
-          Q2[kyc_results queue]
-          MQ --> Q1
-          MQ --> Q2
-      end
+    subgraph MB["Message Broker"]
+        direction TB
+        MQ["RabbitMQ :5672"]
+        Q1["kyc_processing queue"]
+        Q2["kyc_results queue"]
+        MQ --> Q1
+        MQ --> Q2
+    end
 
-      subgraph "Data Layer"
-          DB[(PostgreSQL<br/>Port 5432<br/>- kyc_records<br/>- kyc_audit_log<br/>- wrapped_encryption_key<br/>- wrapped_age_witness)]
-          IPFS[IPFS Node<br/>Port 5001<br/>Encrypted Document Storage]
-      end
+    subgraph DATA["Data Layer"]
+        direction TB
+        DB[("<b>PostgreSQL</b> :5432<br/>kyc_records • audit_log<br/>wrapped_encryption_key<br/>wrapped_age_witness")]
+        IPFS["<b>IPFS</b> :5001<br/>Encrypted documents"]
+    end
 
-      subgraph "Blockchain Layer"
-          KR[KYCRegistry.sol<br/>- registerIdentity ZKP<br/>- isVerified<br/>- flagIdentity]
-          AR[AttributeRegistry.sol<br/>- setAgeCommitment<br/>- verifyAge view<br/>- clearAgeCommitment]
-          V1[Verifier.sol<br/>Groth16 TrustScore]
-          V2[AgeVerifier.sol<br/>Groth16 AgeProof]
-      end
+    subgraph CHAIN["Blockchain Layer"]
+        direction TB
+        KR["<b>KYCRegistry.sol</b><br/>registerIdentity (ZKP) • isVerified"]
+        AR["<b>AttributeRegistry.sol</b><br/>setAgeCommitment • verifyAge"]
+        V1["<b>Verifier.sol</b><br/>Groth16 TrustScore"]
+        V2["<b>AgeVerifier.sol</b><br/>Groth16 AgeProof"]
+    end
 
-      FE -->|POST /kyc/submit<br/>POST /kyc/wrapped-document/by-wallet<br/>POST /kyc/wrapped-age-witness/by-wallet| BE
-      VFE -->|isVerified / verifyAge UI| VBE
-      VBE -->|HTTP request on behalf of viewer<br/>GET /kyc/verify/:wallet<br/>POST /kyc/verify-age| BE
-      BE -->|Save record<br/>Update status| DB
-      BE -->|Publish processing job| Q1
-      Q1 -->|Consume message| AI
-      AI -->|Publish result| Q2
-      Q2 -->|Consume result| BE
-      BE -->|Upload encrypted doc| IPFS
-      IPFS -->|Return CID| BE
-      BE -->|registerIdentity tx ZKP<br/>isVerified read| KR
-      BE -->|setAgeCommitment tx<br/>verifyAge read| AR
-      KR -->|verifyProof| V1
-      AR -->|verifyProof| V2
+    %% Invisible ordering — forces subgraphs to stack vertically
+    UI ~~~ APP
+    APP ~~~ MB
+    MB ~~~ DATA
+    DATA ~~~ CHAIN
 
-      style FE fill:#e1f5ff
-      style VFE fill:#ffe1f5
-      style BE fill:#fff4e1
-      style AI fill:#f0e1ff
-      style VBE fill:#ffe1f5
-      style DB fill:#e1ffe1
-      style IPFS fill:#ffe1f5
-      style KR fill:#ffe1e1
-      style AR fill:#ffd6cc
-      style V1 fill:#ffcccc
-      style V2 fill:#ffcccc
+    %% Visible connections
+    FE  -- "POST /kyc/submit<br/>/wrapped-document<br/>/wrapped-age-witness" --> BE
+    VFE -- "verify UI" --> VBE
+    VBE -- "GET /kyc/verify/:wallet<br/>POST /kyc/verify-age" --> BE
+    BE  -- "publish job" --> Q1
+    Q1  -- "consume" --> AI
+    AI  -- "publish result" --> Q2
+    Q2  -- "consume" --> BE
+    BE  -- "save / update" --> DB
+    BE  -- "upload / fetch" --> IPFS
+    BE  -- "registerIdentity<br/>isVerified" --> KR
+    BE  -- "setAgeCommitment<br/>verifyAge" --> AR
+    KR  -- "verifyProof" --> V1
+    AR  -- "verifyProof" --> V2
+
+    classDef ui    fill:#E3F2FD,stroke:#1565C0,stroke-width:1.5px,color:#0D1B2A
+    classDef app   fill:#FFF8E1,stroke:#F9A825,stroke-width:1.5px,color:#0D1B2A
+    classDef mq    fill:#F3E5F5,stroke:#6A1B9A,stroke-width:1.5px,color:#0D1B2A
+    classDef data  fill:#E8F5E9,stroke:#2E7D32,stroke-width:1.5px,color:#0D1B2A
+    classDef chain fill:#FFEBEE,stroke:#C62828,stroke-width:1.5px,color:#0D1B2A
+
+    class FE,VFE ui
+    class BE,AI,VBE app
+    class MQ,Q1,Q2 mq
+    class DB,IPFS data
+    class KR,AR,V1,V2 chain
+
+    style UI    fill:#F5FAFF,stroke:#90CAF9,stroke-dasharray:3 3
+    style APP   fill:#FFFDF5,stroke:#FFD54F,stroke-dasharray:3 3
+    style MB    fill:#FAF4FB,stroke:#CE93D8,stroke-dasharray:3 3
+    style DATA  fill:#F5FBF5,stroke:#A5D6A7,stroke-dasharray:3 3
+    style CHAIN fill:#FFF5F5,stroke:#EF9A9A,stroke-dasharray:3 3
 ```
