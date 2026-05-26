@@ -5,7 +5,6 @@ import { WalletLinkForm } from './WalletLinkForm';
 import { MyDocumentDownload } from './MyDocumentDownload';
 import { ShareWithBank } from './ShareWithBank';
 import { ProveAgeToBank } from './ProveAgeToBank';
-import { LivenessCapture } from './LivenessCapture';
 import { deriveEncryptionPubkey } from '../lib/ssiCrypto';
 
 const TERMINAL_STATUSES = new Set([
@@ -16,12 +15,16 @@ const TERMINAL_STATUSES = new Set([
 ]);
 const POLL_INTERVAL_MS = 5000;
 
-export function UploadForm() {
+interface UploadFormProps {
+    /** Captured liveness video, owned by the parent (App) and rendered in its own section. */
+    livenessVideo: Blob | null;
+}
+
+export function UploadForm({ livenessVideo }: UploadFormProps) {
     const [userId, setUserId] = useState<string>(() => crypto.randomUUID());
     const [walletAddress, setWalletAddress] = useState<string>('');
     const [file, setFile] = useState<File | null>(null);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-    const [livenessVideo, setLivenessVideo] = useState<Blob | null>(null);
     const [dragOver, setDragOver] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -202,15 +205,10 @@ export function UploadForm() {
                 </div>
             </div>
 
-            <LivenessCapture
-                onCapture={setLivenessVideo}
-                captured={livenessVideo !== null}
-            />
-
             {error && <div className="error-message">⚠ {error}</div>}
 
             {!livenessVideo && (
-                <p className="liveness-required-hint">Complete the liveness check above to enable submission.</p>
+                <p className="liveness-required-hint">Complete the Liveness Check section to enable submission.</p>
             )}
 
             <button type="submit" className="btn-primary" disabled={loading || !livenessVideo}>

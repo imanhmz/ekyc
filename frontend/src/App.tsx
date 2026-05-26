@@ -1,9 +1,14 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { UploadForm } from './components/UploadForm';
 import { FlagWallet } from './components/FlagWallet';
+import { LivenessCapture } from './components/LivenessCapture';
 import './index.css';
 
 function App() {
+    // Liveness state is lifted here so it can live in its own section
+    // alongside the submission form while the form still reads it on submit.
+    const [livenessVideo, setLivenessVideo] = useState<Blob | null>(null);
+
     return (
         <div className="app">
             <header className="header">
@@ -27,18 +32,15 @@ function App() {
             <main className="main">
                 <section className="card">
                     <h2>Submit Verification</h2>
-                    <UploadForm />
+                    <UploadForm livenessVideo={livenessVideo} />
                 </section>
 
-                <section className="info-panel">
-                    <h3>How it works</h3>
-                    <ol className="steps">
-                        <li><strong>Upload</strong> your government-issued ID document</li>
-                        <li><strong>AI Analysis</strong> — OCR extracts fields; deepfake detection checks authenticity</li>
-                        <li><strong>Trust Score</strong> computed: OCR (40%) + Liveness (60%); threshold ≥ 75 to pass</li>
-                        <li><strong>IPFS</strong> — document anchored with a content hash</li>
-                        <li><strong>Blockchain</strong> — Trust Token with expiry written to KYCRegistry smart contract</li>
-                    </ol>
+                <section className="card">
+                    <h2>Liveness Check</h2>
+                    <LivenessCapture
+                        onCapture={setLivenessVideo}
+                        captured={livenessVideo !== null}
+                    />
                 </section>
             </main>
 
