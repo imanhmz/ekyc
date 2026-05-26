@@ -151,17 +151,11 @@ def _on_message(channel, method, properties, body):
     try:
         payload = json.loads(body)
         result = process_message(payload)
-
-        # --- TEST MODE: log extracted data, do NOT publish to backend ---
-        # Publishing is commented out so the backend never advances to
-        # IPFS upload / blockchain registration. Inspect the data below.
         logger.info(
-            "EXTRACTED DATA (publish disabled):\n%s",
+            "EXTRACTED DATA:\n%s",
             json.dumps(result, indent=2, ensure_ascii=False),
         )
-        # _publish_result(channel, result)
-        # --- end TEST MODE ---
-
+        _publish_result(channel, result)
         channel.basic_ack(delivery_tag=method.delivery_tag)
     except Exception as e:
         logger.error(f"Failed to process message: {e}", exc_info=True)

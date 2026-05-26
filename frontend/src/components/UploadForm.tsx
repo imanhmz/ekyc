@@ -140,29 +140,31 @@ export function UploadForm({ livenessVideo }: UploadFormProps) {
 
     return (
         <form className="upload-form" onSubmit={handleSubmit}>
-            <div className="field-group">
-                <label htmlFor="user-id">User ID</label>
-                <input
-                    id="user-id"
-                    type="text"
-                    placeholder="e.g. user_abc123"
-                    value={userId}
-                    onChange={(e) => setUserId(e.target.value)}
-                    disabled={loading}
-                />
-            </div>
+            <div className="field-row">
+                <div className="field-group">
+                    <label htmlFor="user-id">User ID</label>
+                    <input
+                        id="user-id"
+                        type="text"
+                        placeholder="e.g. user_abc123"
+                        value={userId}
+                        onChange={(e) => setUserId(e.target.value)}
+                        disabled={loading}
+                    />
+                </div>
 
-            <div className="field-group">
-                <label htmlFor="wallet-address">Ethereum Wallet Address (optional)</label>
-                <input
-                    id="wallet-address"
-                    type="text"
-                    placeholder="0x... (or link wallet later)"
-                    value={walletAddress}
-                    onChange={(e) => setWalletAddress(e.target.value)}
-                    disabled={loading}
-                />
-                <span className="hint-text">You can also link your wallet after submission</span>
+                <div className="field-group">
+                    <label htmlFor="wallet-address">Ethereum Wallet Address (optional)</label>
+                    <input
+                        id="wallet-address"
+                        type="text"
+                        placeholder="0x... (or link wallet later)"
+                        value={walletAddress}
+                        onChange={(e) => setWalletAddress(e.target.value)}
+                        disabled={loading}
+                    />
+                    <span className="hint-text">You can also link your wallet after submission</span>
+                </div>
             </div>
 
             <div className="field-group">

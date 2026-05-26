@@ -64,7 +64,8 @@ body {
   display: grid;
   grid-template-columns: 1fr;
   gap: 1.5rem;
-  max-width: 900px;
+  align-items: start;
+  max-width: 1100px;
   margin: 2rem auto;
   padding: 0 1rem;
   width: 100%;
@@ -73,6 +74,10 @@ body {
 @media (min-width: 720px) {
   .main { grid-template-columns: 1.4fr 1fr; }
 }
+
+/* Each grid column stacks its cards independently so the right column
+   (Liveness + Flag Wallet) fills the space instead of leaving a gap. */
+.col { display: flex; flex-direction: column; gap: 1.5rem; }
 
 .footer {
   text-align: center;
@@ -100,6 +105,10 @@ body {
 
 /* ─── Form ───────────────────────────────────── */
 .upload-form { display: flex; flex-direction: column; gap: 1.25rem; }
+
+/* Two-up row for short fields so the form is shorter (less scrolling). */
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 560px) { .field-row { grid-template-columns: 1fr; } }
 
 .field-group { display: flex; flex-direction: column; gap: .5rem; }
 

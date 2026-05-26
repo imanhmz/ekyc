@@ -30,24 +30,26 @@ function App() {
             </header>
 
             <main className="main">
-                <section className="card">
-                    <h2>Submit Verification</h2>
-                    <UploadForm livenessVideo={livenessVideo} />
-                </section>
+                <div className="col">
+                    <section className="card">
+                        <h2>Submit Verification</h2>
+                        <UploadForm livenessVideo={livenessVideo} />
+                    </section>
+                </div>
 
-                <section className="card">
-                    <h2>Liveness Check</h2>
-                    <LivenessCapture
-                        onCapture={setLivenessVideo}
-                        captured={livenessVideo !== null}
-                    />
-                </section>
-            </main>
+                <div className="col">
+                    <section className="card">
+                        <h2>Liveness Check</h2>
+                        <LivenessCapture
+                            onCapture={setLivenessVideo}
+                            captured={livenessVideo !== null}
+                        />
+                    </section>
 
-            <main className="main" style={{ marginTop: '0' }}>
-                <section className="card" style={{ borderTop: '3px solid #e53e3e' }}>
-                    <FlagWallet />
-                </section>
+                    <section className="card" style={{ borderTop: '3px solid #e53e3e' }}>
+                        <FlagWallet />
+                    </section>
+                </div>
             </main>
 
             <footer className="footer">
