@@ -467,7 +467,6 @@ def compute_trust_score(ocr_confidence, deepfake_confidence_real,
                         liveness_result=None, liveness_provided=False):
     # With liveness: OCR×0.30 + Deepfake×0.40 + Liveness×0.30
     # Without liveness: OCR×0.40 + Deepfake×0.60
-    # Currently the body is a hard-coded `return 99` for testing
     ...
 
 PASS_THRESHOLD = 75
@@ -669,7 +668,7 @@ The novel contribution: When AI service detects new fraud patterns, backend can 
 - Database uses `synchronize: false` — schema is managed by SQL migration, not TypeORM auto-sync
 - No automated integration tests across service boundaries
 - Recent commit changed OCR to GPU mode — may need adjustment for CPU-only environments
-- AI validation remains mocked (trust_score.py returns 99) - as requested by user
+- AI trust scoring is live (real weighted OCR/deepfake/liveness formula); the `return 99` mock was removed
 
 ## Research Context
 

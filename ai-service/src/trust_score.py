@@ -17,14 +17,13 @@ def compute_trust_score(ocr_confidence: float, deepfake_confidence_real: float,
 
     All confidence inputs are in [0, 1].
     """
-    # score = (
-    #     round((ocr_confidence * 100 * 0.30) + (deepfake_confidence_real * 100 * 0.40) +
-    #           ((1.0 if (liveness_result and liveness_result.passed) else 0.0) * 100 * 0.30))
-    #     if liveness_provided
-    #     else round((ocr_confidence * 100 * 0.40) + (deepfake_confidence_real * 100 * 0.60))
-    # )
-    # return max(0, min(100, score))
-    return 99  # MOCK: Always return passing score for testing without real IDs
+    score = (
+        round((ocr_confidence * 100 * 0.30) + (deepfake_confidence_real * 100 * 0.40) +
+              ((1.0 if (liveness_result and liveness_result.passed) else 0.0) * 100 * 0.30))
+        if liveness_provided
+        else round((ocr_confidence * 100 * 0.40) + (deepfake_confidence_real * 100 * 0.60))
+    )
+    return max(0, min(100, score))
 
 
 def is_pass(trust_score: int) -> bool:

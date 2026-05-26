@@ -20,6 +20,7 @@ export function UploadForm() {
     const [userId, setUserId] = useState<string>(() => crypto.randomUUID());
     const [walletAddress, setWalletAddress] = useState<string>('');
     const [file, setFile] = useState<File | null>(null);
+    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [livenessVideo, setLivenessVideo] = useState<Blob | null>(null);
     const [dragOver, setDragOver] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -42,6 +43,17 @@ export function UploadForm() {
         setFile(selected);
         setError(null);
     };
+
+    // Build (and clean up) an object URL so image documents render a preview.
+    // PDFs keep the icon fallback since they can't be shown in an <img>.
+    useEffect(() => {
+        if (file && file.type.startsWith('image/')) {
+            const url = URL.createObjectURL(file);
+            setPreviewUrl(url);
+            return () => URL.revokeObjectURL(url);
+        }
+        setPreviewUrl(null);
+    }, [file]);
 
     const handleDrop = useCallback((e: DragEvent<HTMLDivElement>) => {
         e.preventDefault();
@@ -168,7 +180,15 @@ export function UploadForm() {
                     />
                     {file ? (
                         <div className="file-selected">
-                            <span className="file-icon">📄</span>
+                            {previewUrl ? (
+                                <img
+                                    src={previewUrl}
+                                    alt={file.name}
+                                    className="file-preview"
+                                />
+                            ) : (
+                                <span className="file-icon">📄</span>
+                            )}
                             <span className="file-name">{file.name}</span>
                             <span className="file-size">({(file.size / 1024).toFixed(1)} KB)</span>
                         </div>

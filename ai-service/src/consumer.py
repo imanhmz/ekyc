@@ -83,6 +83,30 @@ def process_message(body: dict) -> dict:
             "processed_at": processed_at,
         }
 
+    # Completeness gate — a high OCR *confidence* is meaningless if the parser
+    # could not actually extract the identity fields. Reject when essential
+    # fields are missing, regardless of trust score. date_of_birth is required
+    # for the age commitment; document_number is the identity anchor.
+    REQUIRED_FIELDS = ["date_of_birth", "document_number"]
+    missing_fields = [f for f in REQUIRED_FIELDS if not ocr_result.fields.get(f)]
+    if missing_fields:
+        logger.warning(
+            "Rejecting %s — required fields not readable: %s", kyc_id, missing_fields
+        )
+        return {
+            "kyc_id": kyc_id,
+            "result": "REJECTED",
+            "trust_score": trust_score,
+            "rejection_reason": "OCR_FIELDS_MISSING",
+            "ocr_data": {
+                **ocr_result.fields,
+                "ocr_confidence": round(ocr_confidence, 4),
+                "missing_fields": missing_fields,
+            },
+            "deepfake_result": biometric_result,
+            "processed_at": processed_at,
+        }
+
     if passed:
         return {
             "kyc_id": kyc_id,
@@ -127,7 +151,17 @@ def _on_message(channel, method, properties, body):
     try:
         payload = json.loads(body)
         result = process_message(payload)
-        _publish_result(channel, result)
+
+        # --- TEST MODE: log extracted data, do NOT publish to backend ---
+        # Publishing is commented out so the backend never advances to
+        # IPFS upload / blockchain registration. Inspect the data below.
+        logger.info(
+            "EXTRACTED DATA (publish disabled):\n%s",
+            json.dumps(result, indent=2, ensure_ascii=False),
+        )
+        # _publish_result(channel, result)
+        # --- end TEST MODE ---
+
         channel.basic_ack(delivery_tag=method.delivery_tag)
     except Exception as e:
         logger.error(f"Failed to process message: {e}", exc_info=True)

@@ -39,6 +39,56 @@ def _preprocess(image_path: str):
     return denoised
 
 
+_MONTHS = {
+    "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
+    "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12,
+}
+
+# Numeric dates: dd/mm/yyyy (and . or - separators) or yyyy-mm-dd.
+_NUM_DATE = re.compile(
+    r"\b(\d{1,2})[./\-](\d{1,2})[./\-](\d{4})\b"
+    r"|\b(\d{4})[./\-](\d{1,2})[./\-](\d{1,2})\b"
+)
+# Month-name dates: optional day + 3-letter month (+ trailing letters/dot) + 4-digit year.
+# Matches "01 JAN 1981", "JAN 1981", "29 NOV 2019", "15 May. 1990".
+_MON_DATE = re.compile(
+    r"\b(?:(\d{1,2})\s+)?([A-Za-z]{3})[A-Za-z]*\.?\s+(\d{4})\b"
+)
+_DOC_NUMBER = re.compile(r"\b([A-Z]{1,3}\d{5,9})\b")
+
+
+def _parse_date(text: str):
+    """Return (iso_string, year) for the first date-like token, else None.
+
+    Lenient on the day (OCR often mangles or drops it) but strict on a
+    plausible 4-digit year so noise like 'NEW YORK 2009' is rejected upstream
+    by the month-name whitelist.
+    """
+    m = _NUM_DATE.search(text)
+    if m:
+        if m.group(1):  # dd/mm/yyyy
+            day, mon, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        else:           # yyyy-mm-dd
+            year, mon, day = int(m.group(4)), int(m.group(5)), int(m.group(6))
+        if 1900 <= year <= 2100 and 1 <= mon <= 12:
+            if not (1 <= day <= 31):
+                day = 1
+            return f"{year:04d}-{mon:02d}-{day:02d}", year
+
+    m = _MON_DATE.search(text)
+    if m:
+        mon_name = m.group(2).upper()
+        if mon_name in _MONTHS:
+            mon = _MONTHS[mon_name]
+            year = int(m.group(3))
+            day = int(m.group(1)) if m.group(1) else 1
+            if not (1 <= day <= 31):
+                day = 1
+            if 1900 <= year <= 2100:
+                return f"{year:04d}-{mon:02d}-{day:02d}", year
+    return None
+
+
 def _extract_fields(raw_results: list) -> dict:
     """Heuristic field extraction from raw EasyOCR output."""
     texts = [(text.strip(), conf) for (_, text, conf) in raw_results]
@@ -51,28 +101,34 @@ def _extract_fields(raw_results: list) -> dict:
         "document_type": "UNKNOWN",
     }
 
-    date_pattern = re.compile(r"\b(\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}|\d{4}[./\-]\d{2}[./\-]\d{2})\b")
-    doc_number_pattern = re.compile(r"\b([A-Z]{1,3}\d{5,9})\b")
-
+    dated = []  # (year, iso_string)
     for text, conf in texts:
         upper = text.upper()
-        if "PASSPORT" in upper:
+        # Document type — tolerate OCR noise ("Passpon Card" still has "PASSP").
+        if "PASSP" in upper:
             fields["document_type"] = "PASSPORT"
         elif "NATIONAL" in upper or "IDENTITY" in upper:
-            fields["document_type"] = "NATIONAL_ID"
-        elif "DRIVING" in upper or "DRIVER" in upper:
-            fields["document_type"] = "DRIVERS_LICENCE"
+            if fields["document_type"] == "UNKNOWN":
+                fields["document_type"] = "NATIONAL_ID"
+        elif "DRIVIN" in upper or "DRIVER" in upper or "LICEN" in upper:
+            if fields["document_type"] == "UNKNOWN":
+                fields["document_type"] = "DRIVERS_LICENCE"
 
-        m = doc_number_pattern.search(text)
+        m = _DOC_NUMBER.search(text)
         if m and not fields["document_number"]:
             fields["document_number"] = m.group(1)
 
-        dates = date_pattern.findall(text)
-        if dates:
-            if not fields["date_of_birth"]:
-                fields["date_of_birth"] = dates[0]
-            if len(dates) > 1 and not fields["expiry_date"]:
-                fields["expiry_date"] = dates[1]
+        parsed = _parse_date(text)
+        if parsed:
+            dated.append((parsed[1], parsed[0]))
+
+    # Dates arrive as disordered fragments; OCR can even split off the day.
+    # Heuristic: earliest year = date of birth, latest year = expiry.
+    if dated:
+        dated.sort(key=lambda d: d[0])
+        fields["date_of_birth"] = dated[0][1]
+        if len(dated) > 1:
+            fields["expiry_date"] = dated[-1][1]
 
     return fields
 
@@ -107,6 +163,12 @@ def run_ocr(image_path: str) -> OcrResult:
         raw = reader.readtext(img, detail=1)
         if not raw:
             return OcrResult(fields={}, confidence=0.0, raw_count=0)
+
+        # DEBUG: dump every text fragment EasyOCR found, so we can see the
+        # actual date/label formats on the card and tune the parser.
+        logger.info("RAW OCR fragments:")
+        # for (_, text, conf) in raw:
+        #     logger.info("  [%.2f] %r", conf, text)
 
         avg_confidence = float(sum(r[2] for r in raw) / len(raw))
         fields = _extract_fields(raw)

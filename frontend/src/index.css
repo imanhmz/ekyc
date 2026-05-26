@@ -148,8 +148,9 @@ body {
 .upload-icon { font-size: 1.8rem; }
 .hint { font-size: .8rem; color: var(--text-muted); }
 
-.file-selected { display: flex; align-items: center; gap: .6rem; justify-content: center; flex-wrap: wrap; }
-.file-icon { font-size: 1.4rem; }
+.file-selected { display: flex; flex-direction: column; align-items: center; gap: .4rem; justify-content: center; }
+.file-preview { max-width: 100%; max-height: 220px; border-radius: 8px; border: 1px solid var(--border, #d0d0d0); box-shadow: 0 2px 8px rgba(0,0,0,.12); object-fit: contain; }
+.file-icon { font-size: 2.4rem; }
 .file-name { color: var(--success); font-weight: 500; word-break: break-all; }
 .file-size { font-size: .8rem; color: var(--text-muted); }
 
