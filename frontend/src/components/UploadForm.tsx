@@ -138,192 +138,195 @@ export function UploadForm({ livenessVideo }: UploadFormProps) {
         return () => clearInterval(id);
     }, [kycId, status?.status]);
 
+    const showSsi = status?.status === 'APPROVED' && !!status.wallet_address;
+
     return (
         <form className="upload-form" onSubmit={handleSubmit}>
-            <div className="field-row">
-                <div className="field-group">
-                    <label htmlFor="user-id">User ID</label>
-                    <input
-                        id="user-id"
-                        type="text"
-                        placeholder="e.g. user_abc123"
-                        value={userId}
-                        onChange={(e) => setUserId(e.target.value)}
-                        disabled={loading}
-                    />
-                </div>
+            <div className={`form-content${showSsi ? ' with-ssi' : ''}`}>
+                {/* ── Left column: inputs + drop zone + result ── */}
+                <div className="form-left">
+                    <div className="field-row">
+                        <div className="field-group">
+                            <label htmlFor="user-id">User ID</label>
+                            <input
+                                id="user-id"
+                                type="text"
+                                placeholder="e.g. user_abc123"
+                                value={userId}
+                                onChange={(e) => setUserId(e.target.value)}
+                                disabled={loading}
+                            />
+                        </div>
 
-                <div className="field-group">
-                    <label htmlFor="wallet-address">Ethereum Wallet Address (optional)</label>
-                    <input
-                        id="wallet-address"
-                        type="text"
-                        placeholder="0x... (or link wallet later)"
-                        value={walletAddress}
-                        onChange={(e) => setWalletAddress(e.target.value)}
-                        disabled={loading}
-                    />
-                    <span className="hint-text">You can also link your wallet after submission</span>
-                </div>
-            </div>
+                        <div className="field-group">
+                            <label htmlFor="wallet-address">Ethereum Wallet Address (optional)</label>
+                            <input
+                                id="wallet-address"
+                                type="text"
+                                placeholder="0x... (or link wallet later)"
+                                value={walletAddress}
+                                onChange={(e) => setWalletAddress(e.target.value)}
+                                disabled={loading}
+                            />
+                            <span className="hint-text">You can also link your wallet after submission</span>
+                        </div>
+                    </div>
 
-            <div className="field-group">
-                <label>ID Document</label>
-                <div
-                    className={`drop-zone ${dragOver ? 'drag-over' : ''} ${file ? 'has-file' : ''}`}
-                    onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-                    onDragLeave={() => setDragOver(false)}
-                    onDrop={handleDrop}
-                    onClick={() => document.getElementById('file-input')?.click()}
-                >
-                    <input
-                        id="file-input"
-                        type="file"
-                        accept=".jpg,.jpeg,.png,.pdf"
-                        style={{ display: 'none' }}
-                        onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
-                    />
-                    {file ? (
-                        <div className="file-selected">
-                            {previewUrl ? (
-                                <img
-                                    src={previewUrl}
-                                    alt={file.name}
-                                    className="file-preview"
+                    <div className="doc-submit-wrapper">
+                        <div className="field-group">
+                            <label>ID Document</label>
+                            <div
+                                className={`drop-zone ${dragOver ? 'drag-over' : ''} ${file ? 'has-file' : ''}`}
+                                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                                onDragLeave={() => setDragOver(false)}
+                                onDrop={handleDrop}
+                                onClick={() => document.getElementById('file-input')?.click()}
+                            >
+                                <input
+                                    id="file-input"
+                                    type="file"
+                                    accept=".jpg,.jpeg,.png,.pdf"
+                                    style={{ display: 'none' }}
+                                    onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
                                 />
-                            ) : (
-                                <span className="file-icon">📄</span>
-                            )}
-                            <span className="file-name">{file.name}</span>
-                            <span className="file-size">({(file.size / 1024).toFixed(1)} KB)</span>
-                        </div>
-                    ) : (
-                        <div className="drop-prompt">
-                            <span className="upload-icon">⬆</span>
-                            <span>Drop file here or click to browse</span>
-                            <span className="hint">Accepted: JPEG, PNG, PDF · Max: 10MB</span>
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            {error && <div className="error-message">⚠ {error}</div>}
-
-            {!livenessVideo && (
-                <p className="liveness-required-hint">Complete the Liveness Check section to enable submission.</p>
-            )}
-
-            <button type="submit" className="btn-primary" disabled={loading || !livenessVideo}>
-                {loading ? 'Submitting…' : 'Submit for Verification'}
-            </button>
-
-            {kycId && (
-                <div className="result-panel">
-                    <div className="divider" />
-                    <div className="result-row">
-                        <span className="label">KYC ID:</span>
-                        <span className="kyc-id">{kycId}</span>
-                    </div>
-                    <div className="result-row">
-                        <span className="label">Status:</span>
-                        <StatusBadge status={status?.status} />
-                    </div>
-                    {status?.trust_score !== undefined && (
-                        <div className="result-row">
-                            <span className="label">Trust Score:</span>
-                            <span className="value">{status.trust_score}/100</span>
-                        </div>
-                    )}
-                    {status?.ipfs_cid && (
-                        <div className="result-row">
-                            <span className="label">IPFS CID:</span>
-                            <span className="value mono">{status.ipfs_cid}</span>
-                        </div>
-                    )}
-                    {status?.blockchain_tx_hash && (
-                        <div className="result-row">
-                            <span className="label">TX Hash:</span>
-                            <span className="value mono">{status.blockchain_tx_hash}</span>
-                        </div>
-                    )}
-                    {status?.token_expires_at && (
-                        <div className="result-row">
-                            <span className="label">Token Expires:</span>
-                            <span className="value">{new Date(status.token_expires_at).toLocaleDateString()}</span>
-                        </div>
-                    )}
-                    {status?.rejection_reason && (
-                        <div className="result-row">
-                            <span className="label">Rejection Reason:</span>
-                            <span className="value rejection">{status.rejection_reason}</span>
-                        </div>
-                    )}
-
-                    {status?.deepfake_result?.liveness && (
-                        <div className="liveness-result-panel">
-                            <div className="result-row">
-                                <span className="label">Liveness:</span>
-                                <span className={`value ${status.deepfake_result.liveness.passed ? 'approved' : status.deepfake_result.liveness.provided ? 'rejection' : 'pending'}`}>
-                                    {!status.deepfake_result.liveness.provided
-                                        ? 'Not provided'
-                                        : status.deepfake_result.liveness.passed
-                                            ? `✅ Passed`
-                                            : `❌ Failed`}
-                                </span>
+                                {file ? (
+                                    <div className="file-selected">
+                                        {previewUrl ? (
+                                            <img
+                                                src={previewUrl}
+                                                alt={file.name}
+                                                className="file-preview"
+                                            />
+                                        ) : (
+                                            <span className="file-icon">📄</span>
+                                        )}
+                                        <span className="file-name">{file.name}</span>
+                                        <span className="file-size">({(file.size / 1024).toFixed(1)} KB)</span>
+                                    </div>
+                                ) : (
+                                    <div className="drop-prompt">
+                                        <span className="upload-icon">⬆</span>
+                                        <span>Drop file here or click to browse</span>
+                                        <span className="hint">Accepted: JPEG, PNG, PDF · Max: 10MB</span>
+                                    </div>
+                                )}
                             </div>
-                            {status.deepfake_result.liveness.provided && (
-                                <>
+                        </div>
+
+                        <div className="submit-actions">
+                            {error && <div className="error-message">⚠ {error}</div>}
+                            {!livenessVideo && (
+                                <p className="liveness-required-hint">Complete the Liveness Check section to enable submission.</p>
+                            )}
+                            <button type="submit" className="btn-primary" disabled={loading || !livenessVideo}>
+                                {loading ? 'Submitting…' : 'Submit for Verification'}
+                            </button>
+                        </div>
+                    </div>
+
+                    {kycId && (
+                        <div className="result-panel">
+                            <div className="divider" />
+                            <div className="result-row">
+                                <span className="label">KYC ID:</span>
+                                <span className="kyc-id">{kycId}</span>
+                            </div>
+                            <div className="result-row">
+                                <span className="label">Status:</span>
+                                <StatusBadge status={status?.status} />
+                            </div>
+                            {status?.trust_score !== undefined && (
+                                <div className="result-row">
+                                    <span className="label">Trust Score:</span>
+                                    <span className="value">{status.trust_score}/100</span>
+                                </div>
+                            )}
+                            {status?.ipfs_cid && (
+                                <div className="result-row">
+                                    <span className="label">IPFS CID:</span>
+                                    <span className="value mono">{status.ipfs_cid}</span>
+                                </div>
+                            )}
+                            {status?.blockchain_tx_hash && (
+                                <div className="result-row">
+                                    <span className="label">TX Hash:</span>
+                                    <span className="value mono">{status.blockchain_tx_hash}</span>
+                                </div>
+                            )}
+                            {status?.token_expires_at && (
+                                <div className="result-row">
+                                    <span className="label">Token Expires:</span>
+                                    <span className="value">{new Date(status.token_expires_at).toLocaleDateString()}</span>
+                                </div>
+                            )}
+                            {status?.rejection_reason && (
+                                <div className="result-row">
+                                    <span className="label">Rejection Reason:</span>
+                                    <span className="value rejection">{status.rejection_reason}</span>
+                                </div>
+                            )}
+
+                            {status?.deepfake_result?.liveness && (
+                                <div className="liveness-result-panel">
                                     <div className="result-row">
-                                        <span className="label">Head rotation:</span>
-                                        <span className="value">{status.deepfake_result.liveness.yaw_range}°</span>
+                                        <span className="label">Liveness:</span>
+                                        <span className={`value ${status.deepfake_result.liveness.passed ? 'approved' : status.deepfake_result.liveness.provided ? 'rejection' : 'pending'}`}>
+                                            {!status.deepfake_result.liveness.provided
+                                                ? 'Not provided'
+                                                : status.deepfake_result.liveness.passed
+                                                    ? `✅ Passed`
+                                                    : `❌ Failed`}
+                                        </span>
                                     </div>
-                                    <div className="result-row">
-                                        <span className="label">Detection rate:</span>
-                                        <span className="value">{Math.round(status.deepfake_result.liveness.detection_rate * 100)}%</span>
-                                    </div>
-                                    <div className="result-row">
-                                        <span className="label">Method:</span>
-                                        <span className="value mono">{status.deepfake_result.liveness.method}</span>
-                                    </div>
-                                    <div className="result-row">
-                                        <span className="label">Detail:</span>
-                                        <span className="value">{status.deepfake_result.liveness.reason}</span>
-                                    </div>
-                                </>
+                                    {status.deepfake_result.liveness.provided && (
+                                        <>
+                                            <div className="result-row">
+                                                <span className="label">Head rotation:</span>
+                                                <span className="value">{status.deepfake_result.liveness.yaw_range}°</span>
+                                            </div>
+                                            <div className="result-row">
+                                                <span className="label">Detection rate:</span>
+                                                <span className="value">{Math.round(status.deepfake_result.liveness.detection_rate * 100)}%</span>
+                                            </div>
+                                            <div className="result-row">
+                                                <span className="label">Method:</span>
+                                                <span className="value mono">{status.deepfake_result.liveness.method}</span>
+                                            </div>
+                                            <div className="result-row">
+                                                <span className="label">Detail:</span>
+                                                <span className="value">{status.deepfake_result.liveness.reason}</span>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            )}
+
+                            <button
+                                type="button"
+                                className="btn-secondary"
+                                onClick={handleCheckStatus}
+                                disabled={polling}
+                            >
+                                {polling ? 'Checking…' : '↻ Check Status'}
+                            </button>
+
+                            {status?.status === 'APPROVED_PENDING_WALLET' && (
+                                <WalletLinkForm kycId={kycId} onSuccess={handleCheckStatus} />
                             )}
                         </div>
                     )}
-
-                    <button
-                        type="button"
-                        className="btn-secondary"
-                        onClick={handleCheckStatus}
-                        disabled={polling}
-                    >
-                        {polling ? 'Checking…' : '↻ Check Status'}
-                    </button>
-
-                    {status?.status === 'APPROVED_PENDING_WALLET' && (
-                        <WalletLinkForm kycId={kycId} onSuccess={handleCheckStatus} />
-                    )}
-
-                    {status?.status === 'APPROVED' && status.wallet_address && (
-                        <div className="divider" />
-                    )}
-
-                    {status?.status === 'APPROVED' && status.wallet_address && (
-                        <MyDocumentDownload walletAddress={status.wallet_address} />
-                    )}
-
-                    {status?.status === 'APPROVED' && status.wallet_address && (
-                        <ShareWithBank walletAddress={status.wallet_address} />
-                    )}
-
-                    {status?.status === 'APPROVED' && status.wallet_address && (
-                        <ProveAgeToBank walletAddress={status.wallet_address} />
-                    )}
                 </div>
-            )}
+
+                {/* ── Right column: SSI actions (only when APPROVED) ── */}
+                {showSsi && (
+                    <div className="ssi-column">
+                        <p className="ssi-column-title">Identity Actions</p>
+                        <MyDocumentDownload walletAddress={status!.wallet_address!} />
+                        <ShareWithBank walletAddress={status!.wallet_address!} />
+                        <ProveAgeToBank walletAddress={status!.wallet_address!} />
+                    </div>
+                )}
+            </div>
         </form>
     );
 }

@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Viewer Bank - KYC Verification Checker</title>
     <script src="https://cdn.ethers.io/lib/ethers-5.7.umd.min.js"></script>
+    <!-- Vendored locally so the age-proof flow works offline -->
+    <script src="vendor/snarkjs.min.js"></script>
+    <script src="vendor/eth-crypto.js"></script>
     <style>
         * {
             margin: 0;
@@ -478,6 +481,36 @@
             </div>
         </div>
 
+        <!-- Age Proof (ZK) -->
+        <div class="card">
+            <h2 style="margin-bottom: 20px;">🔒 Prove Age (Zero-Knowledge)</h2>
+            <div class="info-box">
+                Prove you're at least N years old to the Viewer Bank <strong>without revealing your date of birth</strong>.
+                The proof is generated in your browser from a wallet-locked witness and verified on-chain against your
+                published commitment (AttributeRegistry.verifyAge).
+            </div>
+
+            <div class="input-group">
+                <label>Signer Bank URL (holds your wrapped witness)</label>
+                <input type="text" id="ageSignerUrl" value="http://localhost:3000">
+            </div>
+
+            <div class="input-group">
+                <label>Minimum age to prove</label>
+                <input type="number" id="ageMinInput" min="0" max="150" value="18">
+            </div>
+
+            <button class="btn wallet-connect-btn" onclick="connectWallet()">
+                🦊 Connect MetaMask
+            </button>
+            <button class="btn btn-primary" onclick="proveAge()">
+                🔒 Prove Age with ZKP
+            </button>
+
+            <div id="ageStep" style="display:none; margin-top:12px; color: var(--text-muted);"></div>
+            <div id="ageResult"></div>
+        </div>
+
         <!-- Comparison Table -->
         <div class="card">
             <h2 style="margin-bottom: 20px;">🏦 Institution Comparison</h2>
@@ -851,6 +884,86 @@
             } catch (error) {
                 console.error('Download error:', error);
                 alert('Failed to download document: ' + error.message);
+            }
+        }
+
+        // ─── Age Proof (ZK) ─────────────────────────────────────────────
+        const KEY_DERIVATION_MESSAGE = 'KYC-ENC-KEY-v1';
+
+        async function sha256Hex(input) {
+            const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+            return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        async function proveAge() {
+            const stepEl = document.getElementById('ageStep');
+            const resEl = document.getElementById('ageResult');
+            const signerUrl = document.getElementById('ageSignerUrl').value.trim().replace(/\/$/, '');
+            let minAge = parseInt(document.getElementById('ageMinInput').value || '0', 10);
+
+            resEl.innerHTML = '';
+            if (!window.ethereum) { resEl.innerHTML = '<div class="error-message">⚠ MetaMask not detected.</div>'; return; }
+            if (isNaN(minAge) || minAge < 0 || minAge > 150) {
+                resEl.innerHTML = '<div class="error-message">⚠ Enter a realistic age (0–150). The circuit only supports that range.</div>';
+                return;
+            }
+            const setStep = (t) => { stepEl.style.display = 'block'; stepEl.textContent = t; };
+
+            try {
+                const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                const wallet = accounts[0];
+
+                // 1. Ownership signature → fetch wrapped witness from Signer Bank.
+                setStep('Signing ownership proof…');
+                const ownMsg = `Generate age proof for ${wallet}`;
+                const ownSig = await window.ethereum.request({ method: 'personal_sign', params: [ownMsg, wallet] });
+
+                setStep('Fetching wrapped age witness from Signer Bank…');
+                const wRes = await fetch(`${signerUrl}/api/kyc/wrapped-age-witness/by-wallet`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ wallet_address: wallet, signature: ownSig, message: ownMsg }),
+                });
+                const wData = await wRes.json();
+                if (!wRes.ok) throw new Error(wData.message || `Witness fetch failed (HTTP ${wRes.status})`);
+
+                // 2. Derive SSI key from a second signature, ECIES-unwrap witness locally.
+                setStep('Deriving SSI key from wallet…');
+                const keySig = await window.ethereum.request({ method: 'personal_sign', params: [KEY_DERIVATION_MESSAGE, wallet] });
+                const privateKey = '0x' + await sha256Hex(keySig);
+
+                setStep('Unwrapping age witness in your browser…');
+                const witnessJson = await EthCrypto.decryptWithPrivateKey(privateKey, EthCrypto.cipher.parse(wData.wrapped_age_witness));
+                const witness = JSON.parse(witnessJson); // { dobYear, salt }
+
+                // 3. Generate Groth16 proof in the browser.
+                setStep('Generating Groth16 proof (a few seconds)…');
+                const currentYear = new Date().getFullYear();
+                const input = {
+                    dobYear: String(witness.dobYear), salt: String(witness.salt),
+                    commitment: String(wData.age_commitment), minAge: String(minAge), currentYear: String(currentYear),
+                };
+                const { proof } = await snarkjs.groth16.fullProve(input, 'zkp/AgeProof.wasm', 'zkp/age_final.zkey');
+                const pA = [proof.pi_a[0], proof.pi_a[1]];
+                const pB = [[proof.pi_b[0][1], proof.pi_b[0][0]], [proof.pi_b[1][1], proof.pi_b[1][0]]];
+                const pC = [proof.pi_c[0], proof.pi_c[1]];
+
+                // 4. Submit to the Viewer Bank's on-chain verifier.
+                setStep('Verifying proof on-chain (AttributeRegistry.verifyAge)…');
+                const vRes = await fetch(`${API_BASE}/verify-age`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ wallet_address: wallet, min_age: minAge, current_year: currentYear, pA, pB, pC }),
+                });
+                const vData = await vRes.json();
+                if (!vRes.ok) throw new Error(vData.message || `verify-age failed (HTTP ${vRes.status})`);
+
+                stepEl.style.display = 'none';
+                resEl.innerHTML = vData.verified
+                    ? `<div class="result-card result-verified"><div class="result-header"><span class="result-icon">✅</span><span>AGE VERIFIED</span></div><div class="note">Viewer Bank confirmed on-chain that this wallet is at least <strong>${minAge}</strong> years old. The date of birth was never disclosed.</div></div>`
+                    : `<div class="result-card result-not-verified"><div class="result-header"><span class="result-icon">❌</span><span>PROOF REJECTED</span></div><div class="note">The on-chain verifier rejected the proof for minimum age ${minAge}.</div></div>`;
+            } catch (e) {
+                stepEl.style.display = 'none';
+                const msg = e.code === 4001 ? 'Signature rejected by user' : (e.message || 'Age proof failed');
+                resEl.innerHTML = `<div class="error-message">⚠ ${msg}</div>`;
             }
         }
 

@@ -12,7 +12,7 @@ function App() {
     return (
         <div className="app">
             <header className="header">
-                <div className="logo">✍️</div>
+                {/*<div className="logo">✍️</div>*/}
                 <h1>Signer Bank - KYC Verification</h1>
                 <div style={{
                     display: 'inline-block',
