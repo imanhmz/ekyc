@@ -14,14 +14,11 @@ import { ZkpService } from '../blockchain/zkp.service';
 import { AttributeService } from '../blockchain/attribute.service';
 import { IpfsService } from '../ipfs/ipfs.service';
 import { CryptoService } from '../ipfs/crypto.service';
+import { StorageService } from '../storage/storage.service';
 import { verifyMessage } from 'ethers';
-import * as fs from 'fs';
-import * as path from 'path';
 
 @Injectable()
 export class KycService {
-    private readonly uploadsPath: string;
-
     constructor(
         @InjectRepository(KycRecord)
         private readonly kycRepo: Repository<KycRecord>,
@@ -37,11 +34,8 @@ export class KycService {
         private readonly attributeService: AttributeService,
         private readonly ipfsService: IpfsService,
         private readonly cryptoService: CryptoService,
+        private readonly storageService: StorageService,
     ) {
-        this.uploadsPath = process.env.SHARED_UPLOADS_PATH || './shared_uploads';
-        fs.mkdirSync(this.uploadsPath, { recursive: true });
-
-        // This wires up the handler for the AI result
         this.queueService.setResultHandler(this.processResult.bind(this));
     }
 
@@ -95,27 +89,25 @@ export class KycService {
             return manager.save(KycRecord, r);
         });
 
-        const filename = `${record.id}.${ext}`;
-        const filePath = path.join(this.uploadsPath, filename);
-        fs.writeFileSync(filePath, file.buffer);
-        await this.kycRepo.update(record.id, { documentPath: filePath });
+        const s3Key = `${record.id}.${ext}`;
+        await this.storageService.upload(s3Key, file.buffer, file.mimetype);
+        await this.kycRepo.update(record.id, { documentPath: s3Key });
 
-        // Save liveness video if provided
-        let livenessVideoPath: string | undefined;
+        // Upload liveness video if provided
+        let livenessS3Key: string | undefined;
         if (livenessVideo) {
             const videoExt = livenessVideo.originalname.split('.').pop() || 'webm';
-            const videoFilename = `${record.id}_liveness.${videoExt}`;
-            livenessVideoPath = path.join(this.uploadsPath, videoFilename);
-            fs.writeFileSync(livenessVideoPath, livenessVideo.buffer);
+            livenessS3Key = `${record.id}_liveness.${videoExt}`;
+            await this.storageService.upload(livenessS3Key, livenessVideo.buffer, livenessVideo.mimetype || 'video/webm');
         }
 
         await this.queueService.publishKycJob({
             kyc_id: record.id,
             user_id: userId,
-            file_path: path.resolve(filePath),
+            s3_key: s3Key,
             file_type: file.mimetype,
             submitted_at: new Date().toISOString(),
-            liveness_video_path: livenessVideoPath ? path.resolve(livenessVideoPath) : undefined,
+            liveness_s3_key: livenessS3Key,
         });
 
         // Job is now in the AI processing queue — transition state machine.
@@ -184,23 +176,19 @@ export class KycService {
             else if (trustScore < 80) expiryDays = 90;
             const expiresAt = new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000);
 
-            // Upload encrypted document to IPFS
+            // Download from S3, encrypt, upload to IPFS
             let ipfsCid: string | null = null;
             let encryptionKey: string | null = null;
             try {
-                if (record.documentPath && fs.existsSync(record.documentPath)) {
-                    const uploadResult = await this.ipfsService.addFile(record.documentPath);
+                if (record.documentPath) {
+                    const buffer = await this.storageService.download(record.documentPath);
+                    const uploadResult = await this.ipfsService.addFileBuffer(buffer);
                     ipfsCid = uploadResult.cid;
                     encryptionKey = uploadResult.encryptionKey;
 
-                    // Log IPFS URL for newly uploaded document
                     const ipfsGateway = process.env.IPFS_GATEWAY_URL || 'http://localhost:8080';
-                    console.log('✅ Document uploaded to IPFS (ENCRYPTED):');
-                    console.log(`   CID: ${ipfsCid}`);
+                    console.log(`✅ Document uploaded to IPFS (ENCRYPTED): CID=${ipfsCid}`);
                     console.log(`   Gateway URL: ${ipfsGateway}/ipfs/${ipfsCid}`);
-                    console.log(`   ⚠️  Note: File is AES-256-GCM encrypted. Direct gateway access shows encrypted data.`);
-                    console.log(`   ℹ️  Use download API endpoints to retrieve decrypted document.`);
-                    console.log(`   KYC ID: ${record.id}`);
                 }
             } catch (e) {
                 console.warn('IPFS upload failed, continuing without CID:', e.message);
@@ -240,11 +228,7 @@ export class KycService {
                     deepfakeResult: result.deepfake_result,
                 }));
 
-                // Clean up original file and liveness video after IPFS upload
-                if (record.documentPath) {
-                    try { fs.unlinkSync(record.documentPath); } catch { }
-                    this.deleteLivenessVideo(record.id, record.documentPath);
-                }
+                await this.deleteFromStorage(record.id, record.documentPath);
                 return;
             }
 
@@ -286,11 +270,7 @@ export class KycService {
                 deepfakeResult: result.deepfake_result,
             }));
 
-            // Clean up file and liveness video after IPFS upload
-            if (record.documentPath) {
-                try { fs.unlinkSync(record.documentPath); } catch { }
-                this.deleteLivenessVideo(record.id, record.documentPath);
-            }
+            await this.deleteFromStorage(record.id, record.documentPath);
         } else {
             // Trigger logs PROCESSING → REJECTED.
             await this.withAuditContext('ai-service', {
@@ -303,10 +283,7 @@ export class KycService {
                 deepfakeResult: result.deepfake_result,
             }));
 
-            if (record.documentPath) {
-                try { fs.unlinkSync(record.documentPath); } catch { }
-                this.deleteLivenessVideo(record.id, record.documentPath);
-            }
+            await this.deleteFromStorage(record.id, record.documentPath);
         }
     }
 
@@ -750,12 +727,10 @@ export class KycService {
         };
     }
 
-    private deleteLivenessVideo(kycId: string, documentPath: string) {
-        // Liveness video is stored as {kyc_id}_liveness.{ext} in the same directory
-        const dir = path.dirname(documentPath);
+    private async deleteFromStorage(kycId: string, documentKey: string | null) {
+        if (documentKey) await this.storageService.delete(documentKey);
         for (const ext of ['webm', 'mp4', 'mov']) {
-            const p = path.join(dir, `${kycId}_liveness.${ext}`);
-            try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch { }
+            await this.storageService.delete(`${kycId}_liveness.${ext}`);
         }
     }
 

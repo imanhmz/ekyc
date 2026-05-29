@@ -1,0 +1,8 @@
+[signing]
+key = "kyc-dev-signing-key"
+
+[jwt.signing]
+key = "kyc-dev-jwt-signing-key"
+
+[jwt.filer_signing]
+key = "kyc-dev-filer-signing-key"

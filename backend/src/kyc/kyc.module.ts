@@ -8,6 +8,7 @@ import { User } from '../database/user.entity';
 import { QueueModule } from '../queue/queue.module';
 import { BlockchainModule } from '../blockchain/blockchain.module';
 import { IpfsModule } from '../ipfs/ipfs.module';
+import { StorageModule } from '../storage/storage.module';
 
 @Module({
     imports: [
@@ -15,6 +16,7 @@ import { IpfsModule } from '../ipfs/ipfs.module';
         QueueModule,
         BlockchainModule,
         IpfsModule,
+        StorageModule,
     ],
     controllers: [KycController],
     providers: [KycService],

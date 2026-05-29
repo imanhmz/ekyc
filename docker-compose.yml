@@ -54,6 +54,45 @@ services:
     networks:
       - kyc_network
 
+  seaweedfs:
+    image: chrislusf/seaweedfs:latest
+    container_name: kyc_seaweedfs
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        sed "s/\$${S3_ACCESS_KEY}/$$S3_ACCESS_KEY/g; s/\$${S3_SECRET_KEY}/$$S3_SECRET_KEY/g"
+        /etc/seaweedfs/s3.json > /tmp/s3.json &&
+        exec weed server -s3 -filer -dir=/data -s3.port=8333 -s3.config=/tmp/s3.json
+    environment:
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+    ports:
+      - "8333:8333"   # S3 API
+      - "9333:9333"   # Master UI
+    volumes:
+      - seaweedfs_data:/data
+      - ./config/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+      - ./config/seaweedfs/security.toml:/etc/seaweedfs/security.toml:ro
+    networks:
+      - kyc_network
+
+  s3browser:
+    image: cloudlena/s3manager
+    container_name: kyc_s3browser
+    restart: unless-stopped
+    environment:
+      ENDPOINT: seaweedfs:8333
+      ACCESS_KEY_ID: ${S3_ACCESS_KEY}
+      SECRET_ACCESS_KEY: ${S3_SECRET_KEY}
+      USE_SSL: "false"
+    ports:
+      - "9444:8080"
+    depends_on:
+      - seaweedfs
+    networks:
+      - kyc_network
+
 #  api:
 #    build:
 #      context: ./backend
@@ -65,6 +104,8 @@ services:
 #        condition: service_healthy
 #      mq:
 #        condition: service_healthy
+#      seaweedfs:
+#        condition: service_started
 #    environment:
 #      DATABASE_HOST: db
 #      DATABASE_PORT: 5432
@@ -76,15 +117,14 @@ services:
 #      CONTRACT_ADDRESS: ${CONTRACT_ADDRESS:-}
 #      BLOCKCHAIN_RPC_URL: ${BLOCKCHAIN_RPC_URL:-http://host.docker.internal:8545}
 #      PRIVATE_KEY: ${PRIVATE_KEY:-}
-#      SHARED_UPLOADS_PATH: /shared_uploads
+#      S3_ENDPOINT: http://seaweedfs:8333
+#      S3_BUCKET: kyc-documents
 #      PORT: 3000
 #      ZKP_ENABLED: ${ZKP_ENABLED:-false}
 #      ZKP_ARTIFACTS_PATH: ${ZKP_ARTIFACTS_PATH:-/app/zkp-artifacts}
 #      VERIFIER_ADDRESS: ${VERIFIER_ADDRESS:-}
 #    ports:
 #      - "3000:3000"
-#    volumes:
-#      - shared_uploads:/shared_uploads
 #    networks:
 #      - kyc_network
 #    extra_hosts:
@@ -101,12 +141,12 @@ services:
 #        condition: service_healthy
 #    environment:
 #      RABBITMQ_URL: amqp://kyc_mq:kyc_mq_pass@mq:5672
-#      SHARED_UPLOADS_PATH: /shared_uploads
+#      S3_ENDPOINT: http://seaweedfs:8333
+#      S3_BUCKET: kyc-documents
 #      MODEL_PATH: /models
 #      TF_ENABLE_ONEDNN_OPTS: "0"
 #      TF_CPP_MIN_LOG_LEVEL: "2"
 #    volumes:
-#      - shared_uploads:/shared_uploads
 #      - ai_models:/models
 #    networks:
 #      - kyc_network
@@ -164,5 +204,5 @@ networks:
 volumes:
   postgres_data:
   ipfs_data:
-  shared_uploads:
+  seaweedfs_data:
   ai_models:

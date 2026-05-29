@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import * as crypto from 'crypto';
-import * as fs from 'fs';
 import EthCrypto from 'eth-crypto';
 
 /**
@@ -27,28 +26,16 @@ export class CryptoService {
     }
 
     /**
-     * Encrypt a file using AES-256-GCM
-     * @param filePath Path to the file to encrypt
-     * @param key Base64-encoded encryption key
-     * @returns Path to the encrypted file (original path + '.enc')
+     * Encrypt a Buffer in memory using AES-256-GCM.
+     * Format: IV (16 bytes) + Auth Tag (16 bytes) + Ciphertext
      */
-    encryptFile(filePath: string, key: string): string {
+    encryptBuffer(input: Buffer, key: string): Buffer {
         const keyBuffer = Buffer.from(key, 'base64');
         const iv = crypto.randomBytes(16);
         const cipher = crypto.createCipheriv('aes-256-gcm', keyBuffer, iv);
-
-        const input = fs.readFileSync(filePath);
         const encrypted = Buffer.concat([cipher.update(input), cipher.final()]);
         const authTag = cipher.getAuthTag();
-
-        // Format: IV (16 bytes) + Auth Tag (16 bytes) + Ciphertext
-        const output = Buffer.concat([iv, authTag, encrypted]);
-
-        // Write encrypted data to temporary file
-        const encryptedPath = `${filePath}.enc`;
-        fs.writeFileSync(encryptedPath, output);
-
-        return encryptedPath;
+        return Buffer.concat([iv, authTag, encrypted]);
     }
 
     /**
@@ -69,17 +56,6 @@ export class CryptoService {
         decipher.setAuthTag(authTag);
 
         return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-    }
-
-    /**
-     * Decrypt a file using AES-256-GCM
-     * @param encryptedPath Path to encrypted file
-     * @param key Base64-encoded encryption key
-     * @returns Decrypted buffer
-     */
-    decryptFile(encryptedPath: string, key: string): Buffer {
-        const data = fs.readFileSync(encryptedPath);
-        return this.decryptBuffer(data, key);
     }
 
     /**

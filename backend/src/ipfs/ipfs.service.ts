@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CryptoService } from './crypto.service';
-import * as fs from 'fs';
 
 export interface IpfsUploadResult {
     cid: string;
@@ -17,25 +16,15 @@ export class IpfsService {
     }
 
     /**
-     * Encrypt and upload a file to IPFS
-     * @param filePath Path to the original file
-     * @returns IPFS CID and encryption key
+     * Encrypt a buffer in memory and upload it to IPFS.
      */
-    async addFile(filePath: string): Promise<IpfsUploadResult> {
-        let encryptedPath: string | null = null;
-
+    async addFileBuffer(buffer: Buffer): Promise<IpfsUploadResult> {
         try {
-            // Generate encryption key
             const encryptionKey = this.cryptoService.generateKey();
+            const encryptedBuffer = this.cryptoService.encryptBuffer(buffer, encryptionKey);
 
-            // Encrypt the file
-            encryptedPath = this.cryptoService.encryptFile(filePath, encryptionKey);
-            this.logger.log(`File encrypted: ${encryptedPath}`);
-
-            // Upload encrypted file to IPFS
-            const encryptedBuffer = fs.readFileSync(encryptedPath);
             const formData = new FormData();
-            formData.append('file', new Blob([encryptedBuffer]));
+            formData.append('file', new Blob([new Uint8Array(encryptedBuffer)]));
 
             const response = await fetch(`${this.apiUrl}/api/v0/add`, {
                 method: 'POST',
@@ -48,24 +37,10 @@ export class IpfsService {
 
             const result = await response.json();
             this.logger.log(`IPFS upload success: ${result.Hash}`);
-
-            return {
-                cid: result.Hash,
-                encryptionKey,
-            };
+            return { cid: result.Hash, encryptionKey };
         } catch (e) {
             this.logger.error(`IPFS upload failed: ${e.message}`);
             throw e;
-        } finally {
-            // Clean up encrypted temporary file
-            if (encryptedPath && fs.existsSync(encryptedPath)) {
-                try {
-                    fs.unlinkSync(encryptedPath);
-                    this.logger.log(`Cleaned up encrypted temp file: ${encryptedPath}`);
-                } catch (cleanupError) {
-                    this.logger.warn(`Failed to cleanup temp file: ${cleanupError.message}`);
-                }
-            }
         }
     }
 
