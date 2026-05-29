@@ -1,16 +1,14 @@
 ```mermaid
-graph TD
+ graph TD
     USER[👤 User Browser\nMetaMask + snarkjs]
-
-    C6[React Frontend\n:5173]
-    C4[NestJS Backend\n:3000]
-    C5[Python AI\n:8000]
-    C1[PostgreSQL\n:5432]
-    C2[RabbitMQ\n:5672]
-    C3[IPFS\n:5001]
-    C7[Viewer Bank\n:3001]
+    C6[React Frontend]
+    C4[NestJS Backend]
+    C5[Python AI]
+    C1[PostgreSQL]
+    C2[RabbitMQ]
+    C3[IPFS]
+    C7[Viewer Bank]
     BC[Polygon / Hardhat\nKYCRegistry · AttributeRegistry]
-
     V1[(postgres_data)]
     V2[(ipfs_data)]
     V3[(shared_uploads)]
@@ -23,7 +21,6 @@ graph TD
     C4 -->|register identity| BC
     C7 -->|verifyAge| BC
     USER -->|direct verify| C7
-
     C1 --- V1
     C3 --- V2
     C4 --- V3 & V5
