@@ -1,18 +1,19 @@
 ```mermaid
-%% MODIFIED_CLAUDE: added `direction TB` so mermaid renders the class hierarchy top-to-bottom (portrait) instead of the default side-by-side flat layout that produced 8192x2078.
+ 
 classDiagram
     direction TB
 
     class KYCRegistry {
-        +address owner
-        +IVerifier verifier
-        +uint8 PASS_THRESHOLD
-        +mapping(address→Identity) registry
-        +constructor(address verifierAddress)
-        +registerIdentity(addr, ipfsCid, validUntil, score, pA, pB, pC)
+        +registerIdentity(addr, cid, expiry, score, π)
         +isVerified(address) bool
-        +flagIdentity(address, string reason)
+        +flagIdentity(address, reason)
         +revokeIdentity(address)
+    }
+
+    class AttributeRegistry {
+        +setAgeCommitment(user, commitment)
+        +verifyAge(user, minAge, year, π) bool
+        +clearAgeCommitment(user)
     }
 
     class Identity {
@@ -20,17 +21,6 @@ classDiagram
         +uint256 validUntil
         +uint8 trustScore
         +bool active
-        +uint256 verifiedAt
-    }
-
-    class AttributeRegistry {
-        +address owner
-        +IAgeVerifier ageVerifier
-        +mapping(address→uint256) ageCommitment
-        +constructor(address ageVerifierAddress)
-        +setAgeCommitment(user, commitment)
-        +clearAgeCommitment(user)
-        +verifyAge(user, minAge, currentYear, pA, pB, pC) bool
     }
 
     class IVerifier {
@@ -39,37 +29,32 @@ classDiagram
     }
 
     class Verifier {
-        +verifyProof(pA, pB, pC, uint256[1] pubSignals) bool
+        +verifyProof(pA, pB, pC, uint256[1]) bool
     }
 
     class AgeVerifier {
-        +verifyProof(pA, pB, pC, uint256[3] pubSignals) bool
+        +verifyProof(pA, pB, pC, uint256[3]) bool
     }
 
     class Ownable {
-        +address owner
-        +onlyOwner() modifier
+        +onlyOwner()
         +transferOwnership(address)
     }
 
-    class Events {
-        +IdentityRegistered(address indexed, string ipfsCid, uint256 validUntil)
-        +IdentityFlagged(address indexed, string reason)
-        +IdentityRevoked(address indexed)
-        +AgeCommitmentSet(address indexed, uint256 commitment)
-        +AgeCommitmentCleared(address indexed)
-    }
+    Ownable <|-- KYCRegistry
+    Ownable <|-- AttributeRegistry
+    KYCRegistry --> Identity : stores
+    KYCRegistry --> IVerifier : trust-score ZKP
+    AttributeRegistry --> IVerifier : age ZKP
+    IVerifier <|.. Verifier : TrustScore circuit
+    IVerifier <|.. AgeVerifier : AgeProof circuit
 
-    Ownable <|-- KYCRegistry : inherits
-    Ownable <|-- AttributeRegistry : inherits
-
-    KYCRegistry --> Identity : stores in registry mapping
-    KYCRegistry --> IVerifier : delegates trust-score ZKP check
-    KYCRegistry --> Events : emits
-
-    AttributeRegistry --> IVerifier : delegates age ZKP check
-    AttributeRegistry --> Events : emits
-
-    IVerifier <|.. Verifier : implements (TrustScore circuit)
-    IVerifier <|.. AgeVerifier : implements (AgeProof circuit)
+    style KYCRegistry    fill:#1565C0,stroke:#0D47A1,color:#fff
+    style AttributeRegistry fill:#1565C0,stroke:#0D47A1,color:#fff
+    style Identity       fill:#4527A0,stroke:#311B92,color:#fff
+    style IVerifier      fill:#E65100,stroke:#BF360C,color:#fff
+    style Verifier       fill:#2E7D32,stroke:#1B5E20,color:#fff
+    style AgeVerifier    fill:#2E7D32,stroke:#1B5E20,color:#fff
+    style Ownable        fill:#555555,stroke:#333333,color:#fff
+ 
 ```
