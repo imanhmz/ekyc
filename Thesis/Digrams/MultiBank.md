@@ -1,70 +1,55 @@
 ```mermaid
-%% MODIFIED_CLAUDE: replaced bank-to-bank plaintext share with user-mediated re-wrap; added attribute-level age-proof flow; viewer banks call verifyAge in addition to isVerified.
+ %%{init: {'theme':'base', 'themeVariables': {'fontSize':'11px'}, 'flowchart': {'nodeSpacing':15, 'rankSpacing':30}}}%%
 graph TB
-      subgraph "Bank A - Signer Bank"
-          U1[User submits passport]
-          A1[AI Verification<br/>OCR + Deepfake + Liveness<br/>Cost: ~$1<br/>Time: 30 seconds]
-          A2[AES-256-GCM encrypt<br/>Upload to IPFS]
-          A3[Poseidon commitment<br/>+ Groth16 trust-score proof]
-          A4[ECIES wrap DEK + witness<br/>to user pubkey<br/>NULL plaintext]
-          A5[On-chain writes]
-      end
 
-      subgraph "Blockchain - Shared Ledger"
-          KR[KYCRegistry<br/>verification record<br/>+ trust-score ZKP]
-          AR[AttributeRegistry<br/>Poseidon ageCommitment<br/>per wallet]
-      end
+    subgraph BANKA["Bank A  |  Signer"]
+        direction TB
+        A1["Submit passport"] --> A2["AI verify"]
+        A2 --> A3["Encrypt + commit + ZKP"]
+        A3 --> A4["ECIES wrap → user · on-chain write"]
+    end
 
-      subgraph "User - in browser"
-          UB[Wallet-derived keypair<br/>secp256k1<br/>uPriv in RAM only]
-          UNW[ECIES unwrap DEK<br/>Unwrap age witness<br/>Generate Groth16 age proof]
-      end
+    subgraph CHAIN["Blockchain"]
+        direction LR
+        KR["KYCRegistry"]
+        AR["AttributeRegistry"]
+    end
 
-      subgraph "Bank B - Viewer Bank"
-          B1[User provides wallet]
-          B2[isVerified query]
-          B3[Boolean approval<br/>~1 second, $0]
-          B4[Optional: receive<br/>re-wrapped document]
-          B5[Optional: verifyAge<br/>attribute proof]
-      end
+    subgraph USER["User Browser"]
+        direction TB
+        UB["wallet keypair\nuPriv in RAM"]
+        UNW["unwrap + generate π"]
+        UB --> UNW
+    end
 
-      subgraph "Bank C - Another Viewer"
-          C1[isVerified query]
-          C2[Instant approval]
-      end
+    subgraph BANKB["Bank B  |  Viewer"]
+        direction TB
+        B2["isVerified → ✓"]
+        B4["receive re-wrapped doc"]
+        B5["verifyAge(π) → ✓"]
+    end
 
-      U1 --> A1
-      A1 --> A2
-      A2 --> A3
-      A3 --> A4
-      A4 --> A5
-      A5 -->|registerIdentity ZKP| KR
-      A5 -->|setAgeCommitment| AR
+    A4 -->|registerIdentity| KR
+    A4 -->|setAgeCommitment| AR
+    KR -.-> UB
+    AR -.-> UB
+    B2 -->|isVerified| KR
+    UNW --> B4 & B5
+    B5 -->|verifyAge| AR
 
-      KR -.->|user holds wallet| UB
-      AR -.->|user holds witness| UB
-      UB --> UNW
+    classDef signer fill:#1565C0,stroke:#0D47A1,color:#fff,stroke-width:1px
+    classDef chain  fill:#4527A0,stroke:#311B92,color:#fff,stroke-width:1px
+    classDef user   fill:#E65100,stroke:#BF360C,color:#fff,stroke-width:1px
+    classDef viewer fill:#2E7D32,stroke:#1B5E20,color:#fff,stroke-width:1px
 
-      B1 --> B2
-      B2 -->|isVerified| KR
-      KR -->|true| B3
+    class A1,A2,A3,A4 signer
+    class KR,AR chain
+    class UB,UNW user
+    class B2,B4,B5 viewer
 
-      UNW -->|re-wrap DEK to vPub<br/>POST /receive-document| B4
-      UNW -->|Groth16 age proof<br/>POST /verify-age| B5
-      B5 -->|verifyAge| AR
-      AR -->|true| B5
-
-      C1 -->|isVerified| KR
-      KR -->|true| C2
-
-      style A1 fill:#ffcccc
-      style A4 fill:#ffd6cc
-      style B3 fill:#ccffcc
-      style B4 fill:#ccffe1
-      style B5 fill:#ccffe1
-      style C2 fill:#ccffcc
-      style KR fill:#ccccff
-      style AR fill:#e1ccff
-      style UB fill:#fff4cc
-      style UNW fill:#fff4cc
+    style BANKA fill:#E3F2FD,stroke:#1565C0,stroke-width:2px,stroke-dasharray:4 3
+    style CHAIN fill:#EDE7F6,stroke:#4527A0,stroke-width:2px,stroke-dasharray:4 3
+    style USER  fill:#FBE9E7,stroke:#E65100,stroke-width:2px,stroke-dasharray:4 3
+    style BANKB fill:#E8F5E9,stroke:#2E7D32,stroke-width:2px,stroke-dasharray:4 3
+ 
 ```
