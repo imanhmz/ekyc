@@ -1,57 +1,52 @@
 ```mermaid
-%% MODIFIED_CLAUDE: added ZkpService and AttributeService inside BlockchainModule; CryptoService gained ECIES wrap/unwrap; new SSI/ZKP endpoints in KycController; second contract ABI.
-graph LR
-      subgraph "NestJS Backend"
-          subgraph "KycModule"
-              KC[KycController<br/>HTTP Endpoints<br/>- /submit<br/>- /link-wallet<br/>- /wrapped-document/by-wallet<br/>- /wrapped-age-witness/by-wallet]
-              KS[KycService<br/>Business Logic<br/>- maybeWrapDek<br/>- buildAndPublishAgeWitness]
-              KE[KycRecord Entity]
-          end
+ %%{init: {'theme':'base', 'themeVariables': {'fontSize':'11px'}, 'flowchart': {'nodeSpacing':20, 'rankSpacing':40}}}%%
+graph TB
 
-          subgraph "QueueModule"
-              QP[Queue Producer<br/>Publish Jobs]
-              QC[Queue Consumer<br/>Handle Results]
-          end
+    subgraph KYC["KycModule"]
+        KC["KycController\n/submit · /link-wallet\n/wrapped-document\n/wrapped-age-witness"]
+        KS["KycService\nmaybeWrapDek · buildAgeWitness"]
+        KC --> KS
+    end
 
-          subgraph "BlockchainModule"
-              BS[BlockchainService<br/>ethers.js<br/>registerIdentity ZKP]
-              ZS[ZkpService<br/>snarkjs<br/>TrustScore proof]
-              AS[AttributeService<br/>circomlibjs Poseidon<br/>publishAgeCommitment]
-              ABI1[KYCRegistry.abi.json]
-              ABI2[AttributeRegistry.abi.json]
-          end
+    subgraph QUEUE["QueueModule"]
+        QP["Producer"]
+        QC["Consumer"]
+    end
 
-          subgraph "IpfsModule"
-              IS[IpfsService<br/>Upload/Download]
-          end
+    subgraph BC["BlockchainModule"]
+        BS["BlockchainService\nregisterIdentity"]
+        ZS["ZkpService\nGroth16 proof"]
+        AS["AttributeService\nPoseidon commit"]
+    end
 
-          subgraph "CryptoModule"
-              CS[CryptoService<br/>AES-256-GCM<br/>ECIES wrap/unwrap<br/>eth-crypto]
-          end
+    subgraph INFRA["Infrastructure"]
+        IS["IpfsService"]
+        CS["CryptoService\nAES-256 · ECIES"]
+        TR["TypeORM"]
+    end
 
-          subgraph "DatabaseModule"
-              TR[TypeORM<br/>Repositories]
-          end
-      end
+    KS --> QP
+    QC --> KS
+    KS --> BS
+    KS --> ZS
+    KS --> AS
+    KS --> IS
+    KS --> CS
+    KS --> TR
 
-      KC --> KS
-      KS --> QP
-      KS --> BS
-      KS --> ZS
-      KS --> AS
-      KS --> IS
-      KS --> CS
-      KS --> TR
-      QC --> KS
-      BS --> ABI1
-      AS --> ABI2
+    style KC fill:#B71C1C,stroke:#7F0000,color:#fff
+    style KS fill:#1565C0,stroke:#0D47A1,color:#fff
+    style QP fill:#F9A825,stroke:#F57F17,color:#fff
+    style QC fill:#F9A825,stroke:#F57F17,color:#fff
+    style BS fill:#2E7D32,stroke:#1B5E20,color:#fff
+    style ZS fill:#2E7D32,stroke:#1B5E20,color:#fff
+    style AS fill:#2E7D32,stroke:#1B5E20,color:#fff
+    style IS fill:#6A1B9A,stroke:#4A148C,color:#fff
+    style CS fill:#E65100,stroke:#BF360C,color:#fff
+    style TR fill:#4527A0,stroke:#311B92,color:#fff
 
-      style KC fill:#ffd6d6
-      style KS fill:#d6f5ff
-      style QP fill:#fffdd6
-      style BS fill:#d6ffd6
-      style ZS fill:#d6ffe1
-      style AS fill:#d6ffd6
-      style IS fill:#ffd6ff
-      style CS fill:#ffe1cc
-```
+    style KYC   fill:#FFEBEE,stroke:#B71C1C,stroke-width:2px,stroke-dasharray:3 3
+    style QUEUE fill:#FFFDE7,stroke:#F9A825,stroke-width:2px,stroke-dasharray:3 3
+    style BC    fill:#E8F5E9,stroke:#2E7D32,stroke-width:2px,stroke-dasharray:3 3
+    style INFRA fill:#EDE7F6,stroke:#4527A0,stroke-width:2px,stroke-dasharray:3 3
+ ```
