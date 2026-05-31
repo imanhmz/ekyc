@@ -10,6 +10,7 @@ graph TB
     VBE["Viewer Bank API\nECIES keypair · proxy"]
 
     DB[("PostgreSQL\nrecords · keys · witnesses")]
+    S3["SeaweedFS\ntemp doc store"]
     IPFS["IPFS\nencrypted docs"]
 
     MQ["RabbitMQ\nkyc_processing / kyc_results"]
@@ -25,6 +26,9 @@ graph TB
     MQ -->|consume| AI -->|publish| MQ
 
     BE -->|persist| DB
+    BE -->|upload doc| S3
+    AI -->|download doc| S3
+    BE -->|delete after approval| S3
     BE -->|store ciphertext| IPFS
 
     BE -->|registerIdentity| KR
@@ -38,7 +42,7 @@ graph TB
 
     class FE,VFE ui
     class BE,AI,VBE app
-    class DB,IPFS data
+    class DB,S3,IPFS data
     class MQ mq
     class KR,AR chain
  
