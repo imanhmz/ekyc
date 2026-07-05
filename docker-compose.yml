@@ -93,91 +93,91 @@ services:
     networks:
       - kyc_network
 
-#  api:
-#    build:
-#      context: ./backend
-#      dockerfile: Dockerfile
-#    container_name: kyc_backend
-#    restart: unless-stopped
-#    depends_on:
-#      db:
-#        condition: service_healthy
-#      mq:
-#        condition: service_healthy
-#      seaweedfs:
-#        condition: service_started
-#    environment:
-#      DATABASE_HOST: db
-#      DATABASE_PORT: 5432
-#      DATABASE_USER: kyc_user
-#      DATABASE_PASSWORD: kyc_pass
-#      DATABASE_NAME: kyc_db
-#      RABBITMQ_URL: amqp://kyc_mq:kyc_mq_pass@mq:5672
-#      IPFS_API_URL: http://ipfs:5001
-#      CONTRACT_ADDRESS: ${CONTRACT_ADDRESS:-}
-#      BLOCKCHAIN_RPC_URL: ${BLOCKCHAIN_RPC_URL:-http://host.docker.internal:8545}
-#      PRIVATE_KEY: ${PRIVATE_KEY:-}
-#      S3_ENDPOINT: http://seaweedfs:8333
-#      S3_BUCKET: kyc-documents
-#      PORT: 3000
-#      ZKP_ENABLED: ${ZKP_ENABLED:-false}
-#      ZKP_ARTIFACTS_PATH: ${ZKP_ARTIFACTS_PATH:-/app/zkp-artifacts}
-#      VERIFIER_ADDRESS: ${VERIFIER_ADDRESS:-}
-#    ports:
-#      - "3000:3000"
-#    networks:
-#      - kyc_network
-#    extra_hosts:
-#      - "host.docker.internal:host-gateway"
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: kyc_backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      mq:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_started
+    environment:
+      DATABASE_HOST: db
+      DATABASE_PORT: 5432
+      DATABASE_USER: kyc_user
+      DATABASE_PASSWORD: kyc_pass
+      DATABASE_NAME: kyc_db
+      RABBITMQ_URL: amqp://kyc_mq:kyc_mq_pass@mq:5672
+      IPFS_API_URL: http://ipfs:5001
+      CONTRACT_ADDRESS: ${CONTRACT_ADDRESS:-}
+      BLOCKCHAIN_RPC_URL: ${BLOCKCHAIN_RPC_URL:-http://host.docker.internal:8545}
+      PRIVATE_KEY: ${PRIVATE_KEY:-}
+      S3_ENDPOINT: http://seaweedfs:8333
+      S3_BUCKET: kyc-documents
+      PORT: 3000
+      ZKP_ENABLED: ${ZKP_ENABLED:-false}
+      ZKP_ARTIFACTS_PATH: ${ZKP_ARTIFACTS_PATH:-/app/zkp-artifacts}
+      VERIFIER_ADDRESS: ${VERIFIER_ADDRESS:-}
+    ports:
+      - "3000:3000"
+    networks:
+      - kyc_network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
-#  ai:
-#    build:
-#      context: ./ai-service
-#      dockerfile: Dockerfile
-#    container_name: kyc_ai
-#    restart: unless-stopped
-#    depends_on:
-#      mq:
-#        condition: service_healthy
-#    environment:
-#      RABBITMQ_URL: amqp://kyc_mq:kyc_mq_pass@mq:5672
-#      S3_ENDPOINT: http://seaweedfs:8333
-#      S3_BUCKET: kyc-documents
-#      MODEL_PATH: /models
-#      TF_ENABLE_ONEDNN_OPTS: "0"
-#      TF_CPP_MIN_LOG_LEVEL: "2"
-#    volumes:
-#      - ai_models:/models
-#    networks:
-#      - kyc_network
-#    deploy:
-#      resources:
-#        reservations:
-#          devices:
-#            - driver: nvidia
-#              count: 1
-#              capabilities: [gpu]
-#    healthcheck:
-#      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-#      interval: 30s
-#      timeout: 10s
-#      start_period: 120s
-#      retries: 5
+  ai:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+   container_name: kyc_ai
+   restart: unless-stopped
+   depends_on:
+     mq:
+       condition: service_healthy
+   environment:
+     RABBITMQ_URL: amqp://kyc_mq:kyc_mq_pass@mq:5672
+     S3_ENDPOINT: http://seaweedfs:8333
+     S3_BUCKET: kyc-documents
+     MODEL_PATH: /models
+     TF_ENABLE_ONEDNN_OPTS: "0"
+     TF_CPP_MIN_LOG_LEVEL: "2"
+   volumes:
+     - ai_models:/models
+   networks:
+     - kyc_network
+   deploy:
+     resources:
+       reservations:
+         devices:
+           - driver: nvidia
+             count: 1
+             capabilities: [gpu]
+   healthcheck:
+     test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+     interval: 30s
+     timeout: 10s
+     start_period: 120s
+     retries: 5
 
-#  frontend:
-#    build:
-#      context: ./frontend
-#      dockerfile: Dockerfile
-#    container_name: kyc_frontend
-#    restart: unless-stopped
-#    depends_on:
-#      - api
-#    environment:
-#      VITE_PROXY_TARGET: http://api:3000
-#    ports:
-#      - "5173:5173"
-#    networks:
-#      - kyc_network
+ frontend:
+   build:
+     context: ./frontend
+     dockerfile: Dockerfile
+   container_name: kyc_frontend
+   restart: unless-stopped
+   depends_on:
+     - api
+   environment:
+     VITE_PROXY_TARGET: http://api:3000
+   ports:
+     - "5173:5173"
+   networks:
+     - kyc_network
 
   viewer-bank:
     build:
